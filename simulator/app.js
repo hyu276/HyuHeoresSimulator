@@ -1,459 +1,6 @@
 "use strict";
 
-const MATCH_CONFIG = Object.freeze({
-  laneCount: 5,
-  startingHealth: 20,
-  startingEnergy: 1,
-  energyCap: 10,
-  openingHandSize: 4,
-  cardsDrawnPerTurn: 1,
-  seed: 2762026
-});
-
-const CARD_DEFINITIONS = Object.freeze([
-  { id: "unit_ember_fox", name: "Ember Fox", role: "Striker", cost: 1, attack: 2, health: 1, glyph: "✦", accent: "#ff9d68", description: "Fast pressure unit." },
-  { id: "unit_aegis_drone", name: "Aegis Drone", role: "Guard", cost: 1, attack: 1, health: 3, glyph: "⬡", accent: "#74f2e6", description: "Stable early defender." },
-  { id: "unit_arc_runner", name: "Arc Runner", role: "Raider", cost: 2, attack: 3, health: 2, glyph: "⌁", accent: "#75b9ff", description: "High-tempo lane attacker." },
-  { id: "unit_moss_golem", name: "Moss Golem", role: "Bulwark", cost: 2, attack: 2, health: 4, glyph: "◆", accent: "#76e39f", description: "Durable board presence." },
-  { id: "unit_nova_adept", name: "Nova Adept", role: "Caster", cost: 3, attack: 4, health: 3, glyph: "✧", accent: "#d2a4ff", description: "Expensive, efficient threat." },
-  { id: "unit_iron_hound", name: "Iron Hound", role: "Bruiser", cost: 3, attack: 3, health: 5, glyph: "⬢", accent: "#ffd166", description: "Heavy midgame combatant." },
-  { id: "unit_void_moth", name: "Void Moth", role: "Skirmisher", cost: 1, attack: 1, health: 2, glyph: "◇", accent: "#a493ff", description: "Cheap rival tempo unit." },
-  { id: "unit_rift_knight", name: "Rift Knight", role: "Vanguard", cost: 2, attack: 2, health: 3, glyph: "◈", accent: "#c18cff", description: "Balanced rival unit." }
-]);
-
-const PLAYER_DECK = Object.freeze([
-  "unit_ember_fox",
-  "unit_aegis_drone",
-  "unit_arc_runner",
-  "unit_moss_golem",
-  "unit_nova_adept",
-  "unit_iron_hound",
-  "unit_arc_runner",
-  "unit_aegis_drone",
-  "unit_ember_fox",
-  "unit_moss_golem",
-  "unit_nova_adept",
-  "unit_iron_hound"
-]);
-
-const OPPONENT_DECK = Object.freeze([
-  "unit_void_moth",
-  "unit_rift_knight",
-  "unit_arc_runner",
-  "unit_moss_golem",
-  "unit_nova_adept",
-  "unit_iron_hound",
-  "unit_void_moth",
-  "unit_rift_knight",
-  "unit_arc_runner",
-  "unit_moss_golem",
-  "unit_nova_adept",
-  "unit_iron_hound"
-]);
-
-class SeededRng {
-  constructor(seed) {
-    this.state = seed >>> 0 || 1;
-  }
-
-  nextUint() {
-    let value = this.state;
-    value ^= value << 13;
-    value ^= value >>> 17;
-    value ^= value << 5;
-    this.state = value >>> 0;
-    return this.state;
-  }
-
-  nextInt(maxExclusive) {
-    if (!Number.isInteger(maxExclusive) || maxExclusive <= 0) {
-      throw new RangeError("maxExclusive must be a positive integer.");
-    }
-    return this.nextUint() % maxExclusive;
-  }
-}
-
-class BattleSimulation {
-  constructor(config, definitions, seed) {
-    this.config = config;
-    this.definitionMap = new Map(definitions.map((definition) => [definition.id, definition]));
-    this.seed = seed;
-    this.reset();
-  }
-
-  reset() {
-    this.rng = new SeededRng(this.seed);
-    this.instanceSequence = 0;
-    this.commandSequence = 0;
-    this.commandLog = [];
-    this.state = {
-      turn: 1,
-      phase: "player",
-      winner: null,
-      players: {
-        player: this.createPlayerState("player", PLAYER_DECK),
-        opponent: this.createPlayerState("opponent", OPPONENT_DECK)
-      }
-    };
-
-    const events = [{ type: "MatchStarted", turn: 1 }];
-    this.drawOpeningHands(events);
-    return events;
-  }
-
-  createPlayerState(id, deckDefinitionIds) {
-    const deck = [...deckDefinitionIds];
-    this.shuffle(deck);
-    return {
-      id,
-      health: this.config.startingHealth,
-      maxEnergy: this.config.startingEnergy,
-      energy: this.config.startingEnergy,
-      deck,
-      hand: [],
-      board: Array(this.config.laneCount).fill(null),
-      graveyard: []
-    };
-  }
-
-  shuffle(items) {
-    for (let index = items.length - 1; index > 0; index -= 1) {
-      const swapIndex = this.rng.nextInt(index + 1);
-      [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
-    }
-  }
-
-  drawOpeningHands(events) {
-    for (let count = 0; count < this.config.openingHandSize; count += 1) {
-      this.drawCard("player", events);
-      this.drawCard("opponent", events);
-    }
-  }
-
-  createCardInstance(definitionId, ownerId) {
-    const definition = this.getDefinition(definitionId);
-    this.instanceSequence += 1;
-    return {
-      instanceId: `card_${this.instanceSequence}`,
-      definitionId,
-      ownerId,
-      attack: definition.attack,
-      health: definition.health
-    };
-  }
-
-  getDefinition(definitionId) {
-    const definition = this.definitionMap.get(definitionId);
-    if (!definition) {
-      throw new Error(`Unknown card definition: ${definitionId}`);
-    }
-    return definition;
-  }
-
-  drawCard(playerId, events) {
-    const player = this.state.players[playerId];
-    if (player.deck.length === 0) {
-      events.push({ type: "DeckEmpty", playerId });
-      return;
-    }
-
-    const definitionId = player.deck.shift();
-    const instance = this.createCardInstance(definitionId, playerId);
-    player.hand.push(instance);
-    events.push({ type: "CardDrawn", playerId, instanceId: instance.instanceId, definitionId });
-  }
-
-  validate(command) {
-    if (this.state.winner) {
-      return { ok: false, reason: "The match is already complete." };
-    }
-
-    if (command.type === "PlayCard") {
-      return this.validatePlayCard(command);
-    }
-
-    if (command.type === "EndPlayerAction") {
-      return this.validatePhaseCommand("player");
-    }
-
-    if (command.type === "EndOpponentAction") {
-      return this.validatePhaseCommand("opponent");
-    }
-
-    if (command.type === "ResolveCombat") {
-      return this.validatePhaseCommand("combat");
-    }
-
-    return { ok: false, reason: `Unknown command: ${command.type}` };
-  }
-
-  validatePhaseCommand(requiredPhase) {
-    if (this.state.phase !== requiredPhase) {
-      return { ok: false, reason: `Command requires ${requiredPhase} phase.` };
-    }
-    return { ok: true };
-  }
-
-  validatePlayCard(command) {
-    const player = this.state.players[command.playerId];
-    if (!player) {
-      return { ok: false, reason: "Unknown player." };
-    }
-
-    if (this.state.phase !== command.playerId) {
-      return { ok: false, reason: "It is not that player's action phase." };
-    }
-
-    if (!Number.isInteger(command.laneIndex) || command.laneIndex < 0 || command.laneIndex >= this.config.laneCount) {
-      return { ok: false, reason: "Invalid lane." };
-    }
-
-    if (player.board[command.laneIndex]) {
-      return { ok: false, reason: "That lane is occupied." };
-    }
-
-    const card = player.hand.find((item) => item.instanceId === command.instanceId);
-    if (!card) {
-      return { ok: false, reason: "Card is not in hand." };
-    }
-
-    const definition = this.getDefinition(card.definitionId);
-    if (player.energy < definition.cost) {
-      return { ok: false, reason: "Not enough energy." };
-    }
-
-    return { ok: true };
-  }
-
-  execute(command) {
-    const validation = this.validate(command);
-    if (!validation.ok) {
-      return { accepted: false, reason: validation.reason, events: [] };
-    }
-
-    this.commandSequence += 1;
-    this.commandLog.push({ sequence: this.commandSequence, ...command });
-
-    if (command.type === "PlayCard") {
-      return this.executePlayCard(command);
-    }
-
-    if (command.type === "EndPlayerAction") {
-      return this.changePhase("opponent");
-    }
-
-    if (command.type === "EndOpponentAction") {
-      return this.changePhase("combat");
-    }
-
-    return this.resolveCombat();
-  }
-
-  executePlayCard(command) {
-    const player = this.state.players[command.playerId];
-    const handIndex = player.hand.findIndex((item) => item.instanceId === command.instanceId);
-    const [card] = player.hand.splice(handIndex, 1);
-    const definition = this.getDefinition(card.definitionId);
-
-    player.energy -= definition.cost;
-    player.board[command.laneIndex] = card;
-
-    return {
-      accepted: true,
-      events: [{
-        type: "CardPlayed",
-        playerId: command.playerId,
-        laneIndex: command.laneIndex,
-        instanceId: card.instanceId,
-        definitionId: card.definitionId,
-        cost: definition.cost
-      }]
-    };
-  }
-
-  changePhase(phase) {
-    this.state.phase = phase;
-    return { accepted: true, events: [{ type: "PhaseChanged", phase, turn: this.state.turn }] };
-  }
-
-  getLegalPlayCommands(playerId) {
-    const player = this.state.players[playerId];
-    if (!player || this.state.phase !== playerId) {
-      return [];
-    }
-
-    const emptyLanes = player.board
-      .map((card, laneIndex) => (card ? null : laneIndex))
-      .filter((laneIndex) => laneIndex !== null);
-
-    const commands = [];
-    for (const card of player.hand) {
-      const definition = this.getDefinition(card.definitionId);
-      if (definition.cost > player.energy) {
-        continue;
-      }
-      for (const laneIndex of emptyLanes) {
-        commands.push({ type: "PlayCard", playerId, instanceId: card.instanceId, laneIndex });
-      }
-    }
-    return commands;
-  }
-
-  chooseOpponentPlayCommand() {
-    const legalCommands = this.getLegalPlayCommands("opponent");
-    if (legalCommands.length === 0) {
-      return null;
-    }
-
-    const scored = legalCommands.map((command) => ({
-      command,
-      score: this.scoreOpponentCommand(command)
-    }));
-    const bestScore = Math.max(...scored.map((item) => item.score));
-    const bestCommands = scored.filter((item) => item.score === bestScore);
-    return bestCommands[this.rng.nextInt(bestCommands.length)].command;
-  }
-
-  scoreOpponentCommand(command) {
-    const opponent = this.state.players.opponent;
-    const player = this.state.players.player;
-    const card = opponent.hand.find((item) => item.instanceId === command.instanceId);
-    const definition = this.getDefinition(card.definitionId);
-    const opposingUnit = player.board[command.laneIndex];
-    const lanePressure = opposingUnit ? opposingUnit.attack + opposingUnit.health : 2;
-    return definition.attack * 3 + definition.health + lanePressure - definition.cost;
-  }
-
-  resolveCombat() {
-    const events = [{ type: "CombatStarted", turn: this.state.turn }];
-
-    for (let laneIndex = 0; laneIndex < this.config.laneCount; laneIndex += 1) {
-      if (this.state.winner) {
-        break;
-      }
-      this.resolveLane(laneIndex, events);
-      this.removeDeadUnits(events);
-      this.evaluateWinner(events);
-    }
-
-    if (!this.state.winner) {
-      this.beginNextTurn(events);
-    }
-
-    return { accepted: true, events };
-  }
-
-  resolveLane(laneIndex, events) {
-    const playerUnit = this.state.players.player.board[laneIndex];
-    const opponentUnit = this.state.players.opponent.board[laneIndex];
-
-    if (!playerUnit && !opponentUnit) {
-      return;
-    }
-
-    events.push({ type: "LaneCombatStarted", laneIndex });
-
-    if (playerUnit && opponentUnit) {
-      this.resolveUnitClash(playerUnit, opponentUnit, laneIndex, events);
-      return;
-    }
-
-    if (playerUnit) {
-      this.applyHeroDamage("opponent", playerUnit.attack, playerUnit.instanceId, laneIndex, events);
-      return;
-    }
-
-    this.applyHeroDamage("player", opponentUnit.attack, opponentUnit.instanceId, laneIndex, events);
-  }
-
-  resolveUnitClash(playerUnit, opponentUnit, laneIndex, events) {
-    const playerDamage = playerUnit.attack;
-    const opponentDamage = opponentUnit.attack;
-
-    opponentUnit.health -= playerDamage;
-    playerUnit.health -= opponentDamage;
-
-    events.push({
-      type: "UnitAttacked",
-      attackerId: playerUnit.instanceId,
-      targetId: opponentUnit.instanceId,
-      damage: playerDamage,
-      laneIndex
-    });
-    events.push({
-      type: "UnitAttacked",
-      attackerId: opponentUnit.instanceId,
-      targetId: playerUnit.instanceId,
-      damage: opponentDamage,
-      laneIndex
-    });
-  }
-
-  applyHeroDamage(targetPlayerId, amount, sourceInstanceId, laneIndex, events) {
-    const target = this.state.players[targetPlayerId];
-    target.health = Math.max(0, target.health - amount);
-    events.push({ type: "HeroDamaged", targetPlayerId, sourceInstanceId, damage: amount, laneIndex, health: target.health });
-  }
-
-  removeDeadUnits(events) {
-    this.removeDeadUnitsForPlayer("player", events);
-    this.removeDeadUnitsForPlayer("opponent", events);
-  }
-
-  removeDeadUnitsForPlayer(playerId, events) {
-    const player = this.state.players[playerId];
-    for (let laneIndex = 0; laneIndex < player.board.length; laneIndex += 1) {
-      const card = player.board[laneIndex];
-      if (!card || card.health > 0) {
-        continue;
-      }
-      player.board[laneIndex] = null;
-      player.graveyard.push(card);
-      events.push({ type: "UnitDied", playerId, laneIndex, instanceId: card.instanceId, definitionId: card.definitionId });
-    }
-  }
-
-  evaluateWinner(events) {
-    const playerDead = this.state.players.player.health <= 0;
-    const opponentDead = this.state.players.opponent.health <= 0;
-
-    if (!playerDead && !opponentDead) {
-      return;
-    }
-
-    this.state.winner = this.resolveWinner(playerDead, opponentDead);
-    this.state.phase = "complete";
-    events.push({ type: "MatchEnded", winner: this.state.winner });
-  }
-
-  resolveWinner(playerDead, opponentDead) {
-    if (playerDead && opponentDead) {
-      return "draw";
-    }
-    return opponentDead ? "player" : "opponent";
-  }
-
-  beginNextTurn(events) {
-    this.state.turn += 1;
-    this.state.phase = "player";
-    this.refillEnergy("player");
-    this.refillEnergy("opponent");
-
-    for (let drawIndex = 0; drawIndex < this.config.cardsDrawnPerTurn; drawIndex += 1) {
-      this.drawCard("player", events);
-      this.drawCard("opponent", events);
-    }
-
-    events.push({ type: "TurnStarted", turn: this.state.turn });
-    events.push({ type: "PhaseChanged", phase: "player", turn: this.state.turn });
-  }
-
-  refillEnergy(playerId) {
-    const player = this.state.players[playerId];
-    player.maxEnergy = Math.min(this.config.energyCap, player.maxEnergy + 1);
-    player.energy = player.maxEnergy;
-  }
-}
+const { createDefaultSimulation } = globalThis.HyuSimulation;
 
 class SimulatorView {
   constructor(simulation) {
@@ -585,7 +132,6 @@ class SimulatorView {
   renderHand() {
     const player = this.simulation.state.players.player;
     this.elements.playerHand.replaceChildren();
-
     for (const card of player.hand) {
       this.elements.playerHand.append(this.createHandCard(card, player.energy));
     }
@@ -595,7 +141,7 @@ class SimulatorView {
     const definition = this.simulation.getDefinition(card.definitionId);
     const element = this.elements.handCardTemplate.content.firstElementChild.cloneNode(true);
     const unaffordable = definition.cost > energy;
-    const canInteract = this.simulation.state.phase === "player" && !this.inputLocked && !this.simulation.state.winner;
+    const canInteract = this.canInteractWithHand();
 
     element.dataset.instanceId = card.instanceId;
     element.style.setProperty("--card-accent", definition.accent);
@@ -613,8 +159,12 @@ class SimulatorView {
     return element;
   }
 
+  canInteractWithHand() {
+    return this.simulation.state.phase === "player" && !this.inputLocked && !this.simulation.state.winner;
+  }
+
   renderLaneAffordances() {
-    const canDeploy = Boolean(this.selectedCardId) && this.simulation.state.phase === "player" && !this.inputLocked;
+    const canDeploy = Boolean(this.selectedCardId) && this.canInteractWithHand();
     const playerBoard = this.simulation.state.players.player.board;
 
     this.elements.laneGrid.querySelectorAll(".lane").forEach((lane) => {
@@ -626,22 +176,22 @@ class SimulatorView {
   updateControls() {
     const isPlayerPhase = this.simulation.state.phase === "player";
     this.elements.endPhaseButton.disabled = this.inputLocked || !isPlayerPhase || Boolean(this.simulation.state.winner);
+    this.updateHint(isPlayerPhase);
+  }
 
+  updateHint(isPlayerPhase) {
     if (this.simulation.state.winner) {
       this.setHint("Simulation complete.");
       return;
     }
-
     if (this.inputLocked) {
       this.setHint("Resolving simulation events…");
       return;
     }
-
     if (this.selectedCardId) {
       this.setHint("Choose an empty lane to deploy the selected unit.", true);
       return;
     }
-
     this.setHint(isPlayerPhase ? "Select a card, then choose an empty lane." : "Rival is resolving its action.");
   }
 
@@ -664,13 +214,12 @@ class SimulatorView {
       return;
     }
 
-    const command = {
+    await this.executeAndPresent({
       type: "PlayCard",
       playerId: "player",
       instanceId: this.selectedCardId,
       laneIndex: Number(slot.dataset.laneIndex)
-    };
-    await this.executeAndPresent(command);
+    });
   }
 
   async handleEndAction() {
@@ -680,25 +229,33 @@ class SimulatorView {
 
     this.selectedCardId = null;
     this.setInputLocked(true);
-
-    const phaseResult = this.simulation.execute({ type: "EndPlayerAction" });
-    await this.presentEvents(phaseResult.events);
-    await this.showPhaseOverlay("RIVAL", "Action Phase");
+    await this.advanceToOpponent();
     await this.runOpponentActions();
+    await this.advanceToCombat();
+    await this.resolveAndPresentCombat();
+  }
 
-    const combatPhase = this.simulation.execute({ type: "EndOpponentAction" });
-    await this.presentEvents(combatPhase.events);
+  async advanceToOpponent() {
+    const result = this.simulation.execute({ type: "EndPlayerAction" });
+    await this.presentEvents(result.events);
+    await this.showPhaseOverlay("RIVAL", "Action Phase");
+  }
+
+  async advanceToCombat() {
+    const result = this.simulation.execute({ type: "EndOpponentAction" });
+    await this.presentEvents(result.events);
     await this.showPhaseOverlay("SYSTEM", "Combat");
+  }
 
-    const combat = this.simulation.execute({ type: "ResolveCombat" });
-    await this.presentEvents(combat.events);
+  async resolveAndPresentCombat() {
+    const result = this.simulation.execute({ type: "ResolveCombat" });
+    await this.presentEvents(result.events);
     this.renderAll();
 
     if (this.simulation.state.winner) {
       this.showResult();
       return;
     }
-
     this.setInputLocked(false);
   }
 
@@ -736,50 +293,20 @@ class SimulatorView {
   }
 
   async presentEvent(event) {
-    if (event.type === "CardPlayed") {
-      await this.presentCardPlayed(event);
-      return;
-    }
-
-    if (event.type === "PhaseChanged") {
-      this.renderHeader();
-      this.log(`Phase → ${this.getPhaseLabel(event.phase)}.`);
-      return;
-    }
-
-    if (event.type === "LaneCombatStarted") {
-      this.log(`Lane ${event.laneIndex + 1} begins combat.`);
-      return;
-    }
-
-    if (event.type === "UnitAttacked") {
-      await this.presentUnitAttack(event);
-      return;
-    }
-
-    if (event.type === "HeroDamaged") {
-      await this.presentHeroDamage(event);
-      return;
-    }
-
-    if (event.type === "UnitDied") {
-      await this.presentUnitDeath(event);
-      return;
-    }
-
-    if (event.type === "CardDrawn") {
-      this.lastDrawnCardId = event.playerId === "player" ? event.instanceId : null;
-      this.log(`${this.playerLabel(event.playerId)} draws a card.`);
-      return;
-    }
-
-    if (event.type === "TurnStarted") {
-      this.log(`Turn ${event.turn} begins.`);
-      return;
-    }
-
-    if (event.type === "MatchEnded") {
-      this.log(`Match complete: ${event.winner}.`);
+    const presenters = {
+      CardPlayed: () => this.presentCardPlayed(event),
+      PhaseChanged: () => this.presentPhaseChanged(event),
+      LaneCombatStarted: () => this.presentLaneCombatStarted(event),
+      UnitAttacked: () => this.presentUnitAttack(event),
+      HeroDamaged: () => this.presentHeroDamage(event),
+      UnitDied: () => this.presentUnitDeath(event),
+      CardDrawn: () => this.presentCardDrawn(event),
+      TurnStarted: () => this.presentTurnStarted(event),
+      MatchEnded: () => this.presentMatchEnded(event)
+    };
+    const presenter = presenters[event.type];
+    if (presenter) {
+      await presenter();
     }
   }
 
@@ -792,6 +319,15 @@ class SimulatorView {
     const definition = this.simulation.getDefinition(event.definitionId);
     this.log(`${this.playerLabel(event.playerId)} deploys ${definition.name} to lane ${event.laneIndex + 1}.`);
     await this.delay(420);
+  }
+
+  presentPhaseChanged(event) {
+    this.renderHeader();
+    this.log(`Phase → ${this.getPhaseLabel(event.phase)}.`);
+  }
+
+  presentLaneCombatStarted(event) {
+    this.log(`Lane ${event.laneIndex + 1} begins combat.`);
   }
 
   async presentUnitAttack(event) {
@@ -829,6 +365,19 @@ class SimulatorView {
     await this.delay(420);
   }
 
+  presentCardDrawn(event) {
+    this.lastDrawnCardId = event.playerId === "player" ? event.instanceId : null;
+    this.log(`${this.playerLabel(event.playerId)} draws a card.`);
+  }
+
+  presentTurnStarted(event) {
+    this.log(`Turn ${event.turn} begins.`);
+  }
+
+  presentMatchEnded(event) {
+    this.log(`Match complete: ${event.winner}.`);
+  }
+
   findUnitElement(instanceId) {
     return this.elements.laneGrid.querySelector(`[data-instance-id="${instanceId}"]`);
   }
@@ -837,6 +386,7 @@ class SimulatorView {
     if (!target) {
       return;
     }
+
     const rect = target.getBoundingClientRect();
     const marker = document.createElement("span");
     marker.className = "floating-damage";
@@ -857,13 +407,12 @@ class SimulatorView {
   }
 
   showResult() {
-    const winner = this.simulation.state.winner;
-    const presentation = {
+    const presentations = {
       player: ["Victory", "The rival core has been reduced to zero."],
       opponent: ["Defeat", "Your core has been reduced to zero."],
       draw: ["Draw", "Both cores were destroyed in the same resolution window."]
-    }[winner];
-
+    };
+    const presentation = presentations[this.simulation.state.winner];
     this.elements.resultTitle.textContent = presentation[0];
     this.elements.resultCopy.textContent = presentation[1];
     this.elements.resultOverlay.classList.add("show");
@@ -917,5 +466,5 @@ class SimulatorView {
   }
 }
 
-const simulation = new BattleSimulation(MATCH_CONFIG, CARD_DEFINITIONS, MATCH_CONFIG.seed);
+const simulation = createDefaultSimulation();
 new SimulatorView(simulation);
