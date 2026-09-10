@@ -21,18 +21,14 @@
       </div>
 
       <div class="topbar-actions">
-        <button class="icon-button" id="logToggle" type="button" aria-expanded="false" aria-controls="combatLog">
-          Log
-        </button>
+        <button class="icon-button" id="logToggle" type="button" aria-expanded="false" aria-controls="combatLog">Log</button>
         <button class="icon-button" id="resetButton" type="button">Reset</button>
       </div>
     </header>
 
     <section class="arena" id="arena">
       <div class="player-panel opponent-panel" id="opponentPanel">
-        <div class="hero-portrait opponent-portrait" aria-hidden="true">
-          <span>V</span>
-        </div>
+        <div class="hero-portrait opponent-portrait" aria-hidden="true"><span>V</span></div>
         <div class="hero-copy">
           <span class="hero-name">Void Regent</span>
           <span class="hero-subtitle">Rival Core</span>
@@ -54,9 +50,7 @@
       </div>
 
       <div class="player-panel user-panel" id="playerPanel">
-        <div class="hero-portrait user-portrait" aria-hidden="true">
-          <span>H</span>
-        </div>
+        <div class="hero-portrait user-portrait" aria-hidden="true"><span>H</span></div>
         <div class="hero-copy">
           <span class="hero-name">Astra Warden</span>
           <span class="hero-subtitle">Player Core</span>
@@ -74,13 +68,9 @@
     </section>
 
     <section class="control-zone">
-      <div class="hint-line" id="hintLine" aria-live="polite">
-        Select a card, then choose an empty lane.
-      </div>
-
+      <div class="hint-line" id="hintLine" aria-live="polite">Select a card, then choose an empty lane.</div>
       <div class="hand-and-action">
         <div class="hand" id="playerHand" aria-label="Your hand"></div>
-
         <button class="end-phase-button" id="endPhaseButton" type="button">
           <span class="button-kicker">READY</span>
           <span class="button-main">End Action</span>
@@ -151,6 +141,6 @@
     </button>
   </template>
 
-  <script src="./app.js" defer></script>
+  <script type="module" src="./app.mjs"></script>
 </body>
 </html>
