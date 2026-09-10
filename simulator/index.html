@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1015" />
+  <title>Hyu Heroes — Battle Simulator</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="simulator-shell" aria-label="Hyu Heroes battle simulator">
+    <header class="topbar">
+      <div class="brand-block">
+        <p class="eyebrow">HYU HEROES / SYSTEM TEST</p>
+        <h1>Battle Simulator</h1>
+      </div>
+
+      <div class="phase-cluster" aria-live="polite">
+        <span class="turn-label" id="turnLabel">TURN 1</span>
+        <span class="phase-pill" id="phasePill">PLAYER ACTION</span>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="icon-button" id="logToggle" type="button" aria-expanded="false" aria-controls="combatLog">
+          Log
+        </button>
+        <button class="icon-button" id="resetButton" type="button">Reset</button>
+      </div>
+    </header>
+
+    <section class="arena" id="arena">
+      <div class="player-panel opponent-panel" id="opponentPanel">
+        <div class="hero-portrait opponent-portrait" aria-hidden="true">
+          <span>V</span>
+        </div>
+        <div class="hero-copy">
+          <span class="hero-name">Void Regent</span>
+          <span class="hero-subtitle">Rival Core</span>
+        </div>
+        <div class="stat-chip health-chip" id="opponentHealth" aria-label="Opponent health">20</div>
+        <div class="energy-block" aria-label="Opponent energy">
+          <span class="energy-label">ENERGY</span>
+          <span class="energy-value" id="opponentEnergy">1 / 1</span>
+        </div>
+        <div class="deck-counter" aria-label="Opponent deck cards">
+          <span>DECK</span>
+          <strong id="opponentDeckCount">8</strong>
+        </div>
+      </div>
+
+      <div class="board-frame">
+        <div class="board-glow" aria-hidden="true"></div>
+        <div class="lane-grid" id="laneGrid" aria-label="Battle lanes"></div>
+      </div>
+
+      <div class="player-panel user-panel" id="playerPanel">
+        <div class="hero-portrait user-portrait" aria-hidden="true">
+          <span>H</span>
+        </div>
+        <div class="hero-copy">
+          <span class="hero-name">Astra Warden</span>
+          <span class="hero-subtitle">Player Core</span>
+        </div>
+        <div class="stat-chip health-chip" id="playerHealth" aria-label="Player health">20</div>
+        <div class="energy-block" aria-label="Player energy">
+          <span class="energy-label">ENERGY</span>
+          <span class="energy-value" id="playerEnergy">1 / 1</span>
+        </div>
+        <div class="deck-counter" aria-label="Player deck cards">
+          <span>DECK</span>
+          <strong id="playerDeckCount">8</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="control-zone">
+      <div class="hint-line" id="hintLine" aria-live="polite">
+        Select a card, then choose an empty lane.
+      </div>
+
+      <div class="hand-and-action">
+        <div class="hand" id="playerHand" aria-label="Your hand"></div>
+
+        <button class="end-phase-button" id="endPhaseButton" type="button">
+          <span class="button-kicker">READY</span>
+          <span class="button-main">End Action</span>
+          <span class="button-arrow">→</span>
+        </button>
+      </div>
+    </section>
+
+    <aside class="combat-log" id="combatLog" aria-label="Combat log" aria-hidden="true">
+      <div class="combat-log-header">
+        <div>
+          <span class="eyebrow">EVENT STREAM</span>
+          <strong>Combat Log</strong>
+        </div>
+        <button class="close-log" id="closeLog" type="button" aria-label="Close combat log">×</button>
+      </div>
+      <ol id="combatLogList"></ol>
+    </aside>
+
+    <div class="phase-overlay" id="phaseOverlay" aria-hidden="true">
+      <span class="overlay-kicker" id="overlayKicker">PHASE</span>
+      <strong id="overlayTitle">Combat</strong>
+    </div>
+
+    <div class="result-overlay" id="resultOverlay" aria-hidden="true">
+      <div class="result-card">
+        <span class="eyebrow">SIMULATION COMPLETE</span>
+        <h2 id="resultTitle">Victory</h2>
+        <p id="resultCopy">The opposing core has been reduced to zero.</p>
+        <button type="button" id="playAgainButton">Run Again</button>
+      </div>
+    </div>
+  </main>
+
+  <template id="laneTemplate">
+    <article class="lane" data-lane-index="0">
+      <div class="lane-number"></div>
+      <div class="slot opponent-slot" data-side="opponent"></div>
+      <div class="lane-divider"><span></span></div>
+      <button class="slot player-slot" type="button" data-side="player" aria-label="Play selected card in this lane"></button>
+    </article>
+  </template>
+
+  <template id="unitTemplate">
+    <div class="board-unit">
+      <div class="unit-art"><span class="unit-glyph"></span></div>
+      <div class="unit-name"></div>
+      <div class="unit-stats">
+        <span class="attack-stat"></span>
+        <span class="health-stat"></span>
+      </div>
+    </div>
+  </template>
+
+  <template id="handCardTemplate">
+    <button class="hand-card" type="button">
+      <span class="card-cost"></span>
+      <span class="card-art"><span class="card-glyph"></span></span>
+      <span class="card-content">
+        <strong class="card-name"></strong>
+        <span class="card-role"></span>
+        <span class="card-description"></span>
+      </span>
+      <span class="card-stats">
+        <span class="card-attack"></span>
+        <span class="card-health"></span>
+      </span>
+    </button>
+  </template>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
