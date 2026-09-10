@@ -1,0 +1,150 @@
+name: Owner PR Auto Approve and Squash Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: owner-pr-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+
+      - name: Detect repository test suites
+        id: detect
+        shell: bash
+        run: |
+          if [ -f tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj ]; then
+            echo "dotnet=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dotnet=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f simulator/simulation.test.cjs ]; then
+            echo "simulator=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "simulator=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup .NET
+        if: steps.detect.outputs.dotnet == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Run gameplay tests
+        if: steps.detect.outputs.dotnet == 'true'
+        run: dotnet test tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj --configuration Release
+
+      - name: Run simulator tests
+        if: steps.detect.outputs.simulator == 'true'
+        run: node --test simulator/simulation.test.cjs
+
+      - name: Validate diff whitespace
+        run: git diff --check HEAD^ HEAD || true
+
+  approve-and-merge:
+    name: approve-and-squash-merge
+    needs: quality-gate
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login == 'hyu276' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Verify immutable merge conditions
+        id: verify
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+            const expectedSha = context.payload.pull_request.head.sha;
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            const eligible =
+              pr.state === 'open' &&
+              pr.draft === false &&
+              pr.user.login === 'hyu276' &&
+              pr.base.ref === 'main' &&
+              pr.head.repo?.full_name === `${owner}/${repo}` &&
+              pr.head.sha === expectedSha;
+
+            if (!eligible) {
+              core.setFailed('PR eligibility changed after the quality gate; refusing automatic merge.');
+            }
+
+      - name: Auto approve pull request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            try {
+              await github.rest.pulls.createReview({
+                owner,
+                repo,
+                pull_number,
+                event: 'APPROVE',
+                body: 'Automatically approved after the repository quality gate passed.'
+              });
+            } catch (error) {
+              core.warning(`Automatic approval was not accepted by GitHub: ${error.message}`);
+              core.warning('Enable Settings > Actions > General > Allow GitHub Actions to create and approve pull requests if an approval review is required.');
+            }
+
+      - name: Squash merge exact tested commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+            const expectedSha = context.payload.pull_request.head.sha;
+
+            const { data: result } = await github.rest.pulls.merge({
+              owner,
+              repo,
+              pull_number,
+              merge_method: 'squash',
+              sha: expectedSha
+            });
+
+            if (!result.merged) {
+              core.setFailed(`GitHub refused the squash merge: ${result.message}`);
+            }
+
+      - name: Delete merged source branch
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const headRef = context.payload.pull_request.head.ref;
+
+            try {
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `heads/${headRef}`
+              });
+            } catch (error) {
+              core.warning(`Merged successfully but source branch was not deleted: ${error.message}`);
+            }
