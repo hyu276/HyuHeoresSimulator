@@ -30,21 +30,11 @@ Resolved Effect Operation
 
 `MatchStateSnapshot` is immutable outside the transition engine. Each applied operation returns a new snapshot and an ordered event list. The previous snapshot remains valid for replay/debug comparison.
 
-The first reducer handlers cover:
-
-- damage requests;
-- healing;
-- resource changes;
-- base stat SET operations;
-- stat modifier attachment.
-
-`DRAW` is deliberately rejected until ordered deck/hand state exists. The engine must not fake a draw event without an authoritative deck mutation.
+The first reducer handlers cover damage requests, healing, resource changes, base stat SET operations, and stat modifier attachment. `DRAW` is deliberately rejected until ordered deck/hand state exists; the engine must not fake a draw event without an authoritative deck mutation.
 
 ### Event sequence
 
-Every emitted domain event receives a positive monotonically increasing sequence from match state.
-
-A causative event is emitted before state-based events it creates. For lethal damage, the order is:
+Every emitted domain event receives a positive monotonically increasing sequence from match state. A causative event is emitted before state-based events it creates. For lethal damage:
 
 ```text
 DamageApplied(sequence N)
@@ -53,20 +43,15 @@ EntityDied(sequence N+1)
 
 State-based death candidates are processed by lane index and then runtime StableId so simultaneous lethal entities remain deterministic.
 
-The current state-based check treats a board unit/hero with `CurrentHealth <= 0` as dead, moves it to `GRAVEYARD`, clears its lane position, and emits `EntityDied`. More advanced replacement/prevention-of-death mechanics require an explicit future rule rather than UI interception.
-
 ### Trigger discovery
 
-A `DamageApplied` event opens damage-reaction windows only when the canonical damage resolution reports `HealthLost > 0`. A fully mitigated or prevented damage request remains observable as a damage-resolution event but does not count as dealing or receiving damage.
+A `DamageApplied` event opens damage-reaction windows only when canonical resolution reports `HealthLost > 0`. A fully mitigated or prevented request remains observable as a resolution event but does not count as dealing or receiving damage.
 
-For positive health loss, the windows are:
+For positive health loss, `ON_DAMAGE_DEALT` opens before `ON_DAMAGED`. `EntityDied` opens `ON_DEATH`. Because the death event has a later sequence than its causative damage event, damage reactions queue before death reactions.
 
-1. `ON_DAMAGE_DEALT` for the damage source;
-2. `ON_DAMAGED` for the damaged target.
+### Trigger event context
 
-An `EntityDied` event opens `ON_DEATH` for the dead entity.
-
-Because the death event has a later event sequence than its causative damage event, damage reactions are queued before death reactions.
+Every `TriggerQueueItem` keeps the immutable originating `DomainEvent`, not merely its sequence number. The event sequence remains the primary ordering key, while the preserved payload gives the ability-resolution layer authoritative context such as the damaged target, damage resolution, or dead entity. Trigger execution MUST NOT reconstruct this context from current board position or presentation state.
 
 ### Trigger queue ordering
 
@@ -79,14 +64,12 @@ Queue items are ordered by:
 5. ability StableId ascending;
 6. binding StableId ascending.
 
-The binding ID also prevents the same binding from being queued twice for the same event.
-
-New events created by a future queued ability receive later event sequences and therefore cannot retroactively reorder an earlier trigger window.
+The binding ID prevents the same binding from being queued twice for the same event. New events created by a future queued ability receive later event sequences and cannot retroactively reorder an earlier window.
 
 ## Consequences
 
 - Presentation can rebuild from snapshots plus domain events without owning gameplay truth.
-- Replay and a future server can reproduce reaction order exactly.
+- Replay and a future server can reproduce reaction order and trigger context exactly.
 - Trigger discovery is separate from trigger execution, preventing uncontrolled recursive callbacks.
 - Ability execution, usage limits, pending player choices, and loop safeguards remain the next simulation-layer responsibilities.
 - Any future change to event or trigger ordering requires explicit regression tests and an ADR/rules update.

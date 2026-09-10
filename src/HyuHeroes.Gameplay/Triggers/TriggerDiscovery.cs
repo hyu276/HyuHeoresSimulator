@@ -1,8 +1,8 @@
 /**
  * TRIGGER_DISCOVERY
- * Purpose: Converts ordered domain events into eligible trigger queue items without executing abilities or mutating match state.
- * Connections: Reads TriggerBindings and DomainEvents, then populates DeterministicTriggerQueue for the future resolution loop.
- * Risk: High because trigger-window membership decides which abilities may react to authoritative events.
+ * Purpose: Converts ordered domain events into eligible trigger queue items while preserving the originating immutable event payload.
+ * Connections: Reads TriggerBindings and DomainEvents, then populates DeterministicTriggerQueue for the ability-resolution loop.
+ * Risk: High because trigger-window membership and event context decide which abilities may react and what they may reference.
  */
 using System;
 using System.Collections.Generic;
@@ -83,10 +83,10 @@ public sealed class TriggerDiscovery
         }
 
         var items = new List<TriggerQueueItem>();
-        items.AddRange(CreateItems(damage.Sequence, DamageDealtWindowOrder, TriggerIds.OnDamageDealt, damage.SourceId));
+        items.AddRange(CreateItems(damage, DamageDealtWindowOrder, TriggerIds.OnDamageDealt, damage.SourceId));
         if (damage.TargetId is { } targetId)
         {
-            items.AddRange(CreateItems(damage.Sequence, DamagedWindowOrder, TriggerIds.OnDamaged, targetId));
+            items.AddRange(CreateItems(damage, DamagedWindowOrder, TriggerIds.OnDamaged, targetId));
         }
 
         return new ReadOnlyCollection<TriggerQueueItem>(items);
@@ -94,14 +94,14 @@ public sealed class TriggerDiscovery
 
     private IReadOnlyList<TriggerQueueItem> DiscoverDeath(EntityDiedDomainEvent death) =>
         new ReadOnlyCollection<TriggerQueueItem>(
-            CreateItems(death.Sequence, DeathWindowOrder, TriggerIds.OnDeath, death.SourceId).ToArray());
+            CreateItems(death, DeathWindowOrder, TriggerIds.OnDeath, death.SourceId).ToArray());
 
     private IEnumerable<TriggerQueueItem> CreateItems(
-        long eventSequence,
+        DomainEvent originatingEvent,
         int windowOrder,
         StableId triggerId,
         StableId sourceId) =>
         _bindings
             .Where(binding => binding.TriggerId == triggerId && binding.SourceId == sourceId)
-            .Select(binding => new TriggerQueueItem(eventSequence, windowOrder, binding));
+            .Select(binding => new TriggerQueueItem(originatingEvent, windowOrder, binding));
 }

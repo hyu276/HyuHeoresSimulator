@@ -1,14 +1,15 @@
 /**
  * TRIGGER_QUEUE
- * Purpose: Owns deterministic ordering for trigger work discovered from authoritative domain events.
- * Connections: Receives TriggerQueueItems from TriggerDiscovery and will feed the future ability-resolution loop.
- * Risk: High because queue ordering determines replay-visible chained effect order when multiple abilities react to one event.
+ * Purpose: Owns deterministic ordering for trigger work while preserving the immutable domain event that opened each reaction window.
+ * Connections: Receives TriggerQueueItems from TriggerDiscovery and feeds the ability-resolution loop with event payload plus binding context.
+ * Risk: High because queue ordering and event context determine replay-visible chained effect behavior.
  */
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using HyuHeroes.Gameplay.Core;
+using HyuHeroes.Gameplay.Events;
 
 namespace HyuHeroes.Gameplay.Triggers;
 
@@ -42,24 +43,20 @@ public sealed class TriggerBinding
 
 public sealed class TriggerQueueItem
 {
-    public TriggerQueueItem(long eventSequence, int windowOrder, TriggerBinding binding)
+    public TriggerQueueItem(DomainEvent originatingEvent, int windowOrder, TriggerBinding binding)
     {
-        if (eventSequence <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(eventSequence), "Trigger event sequence must be positive.");
-        }
-
+        OriginatingEvent = originatingEvent ?? throw new ArgumentNullException(nameof(originatingEvent));
         if (windowOrder < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(windowOrder), "Trigger window order cannot be negative.");
         }
 
-        EventSequence = eventSequence;
         WindowOrder = windowOrder;
         Binding = binding ?? throw new ArgumentNullException(nameof(binding));
     }
 
-    public long EventSequence { get; }
+    public DomainEvent OriginatingEvent { get; }
+    public long EventSequence => OriginatingEvent.Sequence;
     public int WindowOrder { get; }
     public TriggerBinding Binding { get; }
 }
