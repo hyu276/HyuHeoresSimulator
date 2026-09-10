@@ -36,9 +36,7 @@ public sealed class StateEventTriggerTests
         {
             new DamagePrevention(StableId.Parse("prevention.shield"), TargetId, 2m)
         });
-        var engine = new StateTransitionEngine();
-
-        var result = engine.Apply(original, DamageOperation(10m));
+        var result = new StateTransitionEngine().Apply(original, DamageOperation(10m));
 
         Assert.Equal(4m, original.GetRequiredTarget(TargetId).CurrentHealth);
         Assert.Equal(TargetZone.Board, original.GetRequiredTarget(TargetId).Zone);
@@ -47,10 +45,7 @@ public sealed class StateEventTriggerTests
         Assert.Equal(TargetZone.Graveyard, updatedTarget.Zone);
         Assert.Null(updatedTarget.LaneIndex);
         Assert.Empty(result.State.DamagePreventions);
-        Assert.Collection(
-            result.Events,
-            item => Assert.IsType<DamageAppliedDomainEvent>(item),
-            item => Assert.IsType<EntityDiedDomainEvent>(item));
+        Assert.Collection(result.Events, item => Assert.IsType<DamageAppliedDomainEvent>(item), item => Assert.IsType<EntityDiedDomainEvent>(item));
         Assert.Equal(new long[] { 1, 2 }, result.Events.Select(item => item.Sequence));
         Assert.Equal(3, result.State.NextEventSequence);
     }
@@ -59,12 +54,7 @@ public sealed class StateEventTriggerTests
     public void HealTransition_CapsAtEffectiveMaximumHealth()
     {
         var state = CreateState(targetHealth: 2m);
-        var operation = new ResolvedEffectOperation(
-            ResolvedEffectOperationKind.Heal,
-            EffectIds.Heal,
-            SourceId,
-            TargetId,
-            5m);
+        var operation = new ResolvedEffectOperation(ResolvedEffectOperationKind.Heal, EffectIds.Heal, SourceId, TargetId, 5m);
 
         var result = new StateTransitionEngine().Apply(state, operation);
 
@@ -116,20 +106,22 @@ public sealed class StateEventTriggerTests
     }
 
     [Fact]
-    public void TriggerDiscovery_OrdersDamageDealtBeforeDamagedThenDeath()
+    public void TriggerDiscovery_OrdersDamageDealtBeforeDamagedThenDeathAndPreservesEventContext()
     {
         var dealerBinding = Binding("binding.dealer", SourceId, "ability.dealer", TriggerIds.OnDamageDealt);
         var damagedBinding = Binding("binding.damaged", TargetId, "ability.damaged", TriggerIds.OnDamaged);
         var deathBinding = Binding("binding.death", TargetId, "ability.death", TriggerIds.OnDeath);
         var transition = new StateTransitionEngine().Apply(CreateState(), DamageOperation(10m));
+        var damageEvent = Assert.IsType<DamageAppliedDomainEvent>(transition.Events[0]);
         var queue = new DeterministicTriggerQueue();
 
         new TriggerDiscovery(new[] { deathBinding, damagedBinding, dealerBinding }).DiscoverInto(transition.Events, queue);
 
-        Assert.Equal(
-            new[] { "binding.dealer", "binding.damaged", "binding.death" },
-            queue.Snapshot().Select(item => item.Binding.BindingId.Value));
-        Assert.Equal(new long[] { 1, 1, 2 }, queue.Snapshot().Select(item => item.EventSequence));
+        var queued = queue.Snapshot();
+        Assert.Equal(new[] { "binding.dealer", "binding.damaged", "binding.death" }, queued.Select(item => item.Binding.BindingId.Value));
+        Assert.Equal(new long[] { 1, 1, 2 }, queued.Select(item => item.EventSequence));
+        Assert.Same(damageEvent, queued[0].OriginatingEvent);
+        Assert.Equal(TargetId, queued[0].OriginatingEvent.TargetId);
     }
 
     [Fact]
@@ -153,8 +145,9 @@ public sealed class StateEventTriggerTests
     [Fact]
     public void TriggerQueue_UsesHigherPriorityBeforeStableTieBreakers()
     {
-        var low = new TriggerQueueItem(4, 1, Binding("binding.low", TargetId, "ability.low", TriggerIds.OnDamaged, 1));
-        var high = new TriggerQueueItem(4, 1, Binding("binding.high", TargetId, "ability.high", TriggerIds.OnDamaged, 10));
+        var domainEvent = new EntityDiedDomainEvent(4, TargetId);
+        var low = new TriggerQueueItem(domainEvent, 1, Binding("binding.low", TargetId, "ability.low", TriggerIds.OnDamaged, 1));
+        var high = new TriggerQueueItem(domainEvent, 1, Binding("binding.high", TargetId, "ability.high", TriggerIds.OnDamaged, 10));
         var queue = new DeterministicTriggerQueue();
 
         queue.Enqueue(low);
@@ -164,26 +157,13 @@ public sealed class StateEventTriggerTests
         Assert.Equal("binding.low", queue.Dequeue().Binding.BindingId.Value);
     }
 
-    private static TriggerBinding Binding(
-        string bindingId,
-        StableId sourceId,
-        string abilityId,
-        StableId triggerId,
-        int priority = 0) =>
+    private static TriggerBinding Binding(string bindingId, StableId sourceId, string abilityId, StableId triggerId, int priority = 0) =>
         new(StableId.Parse(bindingId), sourceId, StableId.Parse(abilityId), triggerId, priority);
 
     private static ResolvedEffectOperation DamageOperation(decimal amount) =>
-        new(
-            ResolvedEffectOperationKind.DamageRequest,
-            EffectIds.Damage,
-            SourceId,
-            TargetId,
-            amount,
-            qualifier: "PHYSICAL");
+        new(ResolvedEffectOperationKind.DamageRequest, EffectIds.Damage, SourceId, TargetId, amount, qualifier: "PHYSICAL");
 
-    private static MatchStateSnapshot CreateState(
-        IEnumerable<DamagePrevention>? preventions = null,
-        decimal targetHealth = 4m)
+    private static MatchStateSnapshot CreateState(IEnumerable<DamagePrevention>? preventions = null, decimal targetHealth = 4m)
     {
         var targets = new[]
         {
@@ -202,10 +182,7 @@ public sealed class StateEventTriggerTests
     }
 
     private static RuntimeTarget Player(StableId id, decimal resource) =>
-        new(
-            id,
-            RuntimeTargetKind.Player,
-            resources: new[] { new KeyValuePair<StableId, decimal>(ResourceId, resource) });
+        new(id, RuntimeTargetKind.Player, resources: new[] { new KeyValuePair<StableId, decimal>(ResourceId, resource) });
 
     private static RuntimeTarget Unit(
         StableId id,
