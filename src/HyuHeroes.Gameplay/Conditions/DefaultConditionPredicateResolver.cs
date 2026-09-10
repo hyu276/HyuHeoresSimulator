@@ -1,7 +1,7 @@
 /**
  * DEFAULT_CONDITION_PREDICATE_RESOLVER
- * Purpose: Executes the built-in schema-v1 condition predicates against immutable runtime targets without embedding card-specific logic.
- * Connections: Invoked by ConditionEvaluator and delegates selectors/formulas to GameplayRuntimeEvaluator for consistent recursive evaluation.
+ * Purpose: Executes built-in schema-v1 condition predicates against immutable runtime targets using shared effective-stat semantics.
+ * Connections: Invoked by ConditionEvaluator and delegates selectors, formulas, and stat resolution to GameplayRuntimeEvaluator.
  * Risk: High because predicate semantics decide whether authoritative abilities, filters, and future effects are eligible to resolve.
  */
 using System;
@@ -103,7 +103,8 @@ public sealed class DefaultConditionPredicateResolver : IConditionPredicateResol
     {
         var statId = parameters.GetRequired<StableIdParameterValue>("statId").Value;
         return ResolveSubjects(parameters).Any(subject =>
-            subject.TryGetStat(statId, out var value) && Compare(value, EvaluateComparisonFormula(parameters, subject), parameters));
+            subject.TryGetStat(statId, out _) &&
+            Compare(_evaluator.ResolveStat(subject, statId), EvaluateComparisonFormula(parameters, subject), parameters));
     }
 
     private bool EvaluateResourceCompare(ParameterBag parameters)
@@ -174,22 +175,21 @@ public sealed class DefaultConditionPredicateResolver : IConditionPredicateResol
     private decimal EvaluateFormula(FormulaExpression formula, GameplayRuntimeContext context) =>
         _evaluator.EvaluateFormula(formula, context);
 
-    private bool IsLaneEmpty(RuntimeTarget lane)
-    {
-        return !_runtime.Targets.Any(target =>
+    private bool IsLaneEmpty(RuntimeTarget lane) =>
+        !_runtime.Targets.Any(target =>
             target.LaneIndex == lane.LaneIndex &&
             target.Zone == TargetZone.Board &&
             (target.Kind == RuntimeTargetKind.Unit || target.Kind == RuntimeTargetKind.Hero));
-    }
 
-    private static bool IsDamaged(RuntimeTarget subject)
+    private bool IsDamaged(RuntimeTarget subject)
     {
-        if (!subject.TryGetCurrentHealth(MaxHealthStatId, out var currentHealth) ||
-            !subject.TryGetStat(MaxHealthStatId, out var maximumHealth))
+        if (!subject.TryGetStat(MaxHealthStatId, out _))
         {
             return false;
         }
 
+        var maximumHealth = _evaluator.ResolveStat(subject, MaxHealthStatId);
+        var currentHealth = subject.CurrentHealth ?? maximumHealth;
         return currentHealth < maximumHealth;
     }
 
@@ -199,10 +199,7 @@ public sealed class DefaultConditionPredicateResolver : IConditionPredicateResol
         return GetRequired(Comparers, comparison, "comparison operator")(left, right);
     }
 
-    private static TValue GetRequired<TValue>(
-        IReadOnlyDictionary<string, TValue> values,
-        string key,
-        string kind)
+    private static TValue GetRequired<TValue>(IReadOnlyDictionary<string, TValue> values, string key, string kind)
     {
         if (values.TryGetValue(key, out var value))
         {

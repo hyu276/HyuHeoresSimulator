@@ -1,7 +1,7 @@
 /**
  * DEFAULT_FORMULA_RUNTIME_CONTEXT
- * Purpose: Resolves schema-v1 formula variables and COUNT selectors from the immutable authoritative runtime evaluation context.
- * Connections: Used by GameplayRuntimeEvaluator through FormulaEvaluationContext and delegates target counting back to TargetResolver.
+ * Purpose: Resolves schema-v1 formula variables and COUNT selectors from immutable runtime state using effective stats.
+ * Connections: Used by GameplayRuntimeEvaluator through FormulaEvaluationContext and delegates stats and target counting to shared runtime services.
  * Risk: High because numeric runtime values directly influence costs, damage, healing, scaling, and deterministic replay outcomes.
  */
 using System;
@@ -36,10 +36,10 @@ public sealed class DefaultFormulaRuntimeContext : IFormulaVariableResolver, ITa
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _variableResolvers = new Dictionary<StableId, Func<decimal>>
         {
-            [SourceAttackId] = () => _runtime.Source.GetRequiredStat(AttackStatId),
+            [SourceAttackId] = () => _evaluator.ResolveStat(_runtime.Source, AttackStatId),
             [SourceHealthId] = () => GetRequiredHealth(_runtime.Source),
-            [SourceMaxHealthId] = () => _runtime.Source.GetRequiredStat(MaxHealthStatId),
-            [TargetAttackId] = () => _runtime.ActiveTarget.GetRequiredStat(AttackStatId),
+            [SourceMaxHealthId] = () => _evaluator.ResolveStat(_runtime.Source, MaxHealthStatId),
+            [TargetAttackId] = () => _evaluator.ResolveStat(_runtime.ActiveTarget, AttackStatId),
             [TargetHealthId] = () => GetRequiredHealth(_runtime.ActiveTarget),
             [OwnerResourceId] = () => _runtime.Owner.GetRequiredResource(PrimaryResourceId),
             [OpponentResourceId] = () => _runtime.Opponent.GetRequiredResource(PrimaryResourceId),
@@ -67,11 +67,16 @@ public sealed class DefaultFormulaRuntimeContext : IFormulaVariableResolver, ITa
         return _evaluator.ResolveTargetsForEvaluation(selector, _runtime).Count;
     }
 
-    private static decimal GetRequiredHealth(RuntimeTarget target)
+    private decimal GetRequiredHealth(RuntimeTarget target)
     {
-        if (target.TryGetCurrentHealth(MaxHealthStatId, out var health))
+        if (target.CurrentHealth is { } currentHealth)
         {
-            return health;
+            return currentHealth;
+        }
+
+        if (target.TryGetStat(MaxHealthStatId, out _))
+        {
+            return _evaluator.ResolveStat(target, MaxHealthStatId);
         }
 
         throw new KeyNotFoundException($"Runtime target '{target.RuntimeId}' does not expose health.");
