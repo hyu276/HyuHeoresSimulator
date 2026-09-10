@@ -25,6 +25,12 @@ internal sealed class PrimitiveGraphValidator
 
     public void ValidateEffect(EffectDefinition effect, string path, int depth, ValidationCollector errors)
     {
+        if (effect is null)
+        {
+            errors.Add("effect.null_node", path, "Effect graph cannot contain null nodes.");
+            return;
+        }
+
         if (depth > GameplaySchemaValidator.MaxEffectDepth)
         {
             errors.Add("effect.depth", path, $"Effect nesting depth exceeds {GameplaySchemaValidator.MaxEffectDepth}.");
@@ -43,6 +49,12 @@ internal sealed class PrimitiveGraphValidator
 
     public void ValidateFormula(FormulaExpression expression, string path, int depth, ValidationCollector errors)
     {
+        if (expression is null)
+        {
+            errors.Add("formula.null_node", path, "Formula graph cannot contain null nodes.");
+            return;
+        }
+
         if (depth > GameplaySchemaValidator.MaxFormulaDepth)
         {
             errors.Add("formula.depth", path, $"Formula depth exceeds {GameplaySchemaValidator.MaxFormulaDepth}.");
@@ -64,6 +76,12 @@ internal sealed class PrimitiveGraphValidator
 
     public void ValidateCondition(ConditionNode node, string path, int depth, ValidationCollector errors)
     {
+        if (node is null)
+        {
+            errors.Add("condition.null_node", path, "Condition graph cannot contain null nodes.");
+            return;
+        }
+
         if (depth > GameplaySchemaValidator.MaxConditionDepth)
         {
             errors.Add("condition.depth", path, $"Condition depth exceeds {GameplaySchemaValidator.MaxConditionDepth}.");
