@@ -10,6 +10,7 @@ Every human or AI contributor should read `PROJECT_CONSTITUTION.md` first, then 
 - `GAMEPLAY_FOUNDATION.md` — lane card-game model, phases, state, commands, targeting, resources, win conditions, and timing policy.
 - `ARCHITECTURE.md` — repository/module structure, dependency direction, Unity boundary, data flow, serialization, and future networking boundary.
 - `CARD_AND_EFFECT_SYSTEM.md` — card definitions, runtime instances, reusable effects, conditions, targets, modifiers, triggers, and resolution rules.
+- `DATA_DRIVEN_GAMEPLAY_AUTHORING.md` — canonical rules for schema-driven cards/abilities/stats, controlled tags/classes, visual condition/formula builders, admin-dashboard authoring, publication/versioning, and the boundary between creative content and programming.
 - `DETERMINISM_AND_REPLAY.md` — seeded RNG, deterministic ordering, command logs, replay requirements, and nondeterminism bans.
 - `CODE_QUALITY.md` — C# quality standards, naming, complexity, error handling, dependencies, and maintainability constraints.
 - `TESTING.md` — required test layers and acceptance criteria for gameplay changes.
