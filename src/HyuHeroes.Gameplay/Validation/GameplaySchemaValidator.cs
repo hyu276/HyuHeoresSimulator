@@ -97,6 +97,11 @@ public sealed class GameplaySchemaValidator
 
     private static void ValidateHeader(GameplayDefinitionHeader header, string path, ValidationCollector errors)
     {
+        if (header.Id == default)
+        {
+            errors.Add("schema.invalid_id", $"{path}.id", "Definition ID must be a non-default namespaced StableId.");
+        }
+
         if (header.SchemaVersion != SupportedSchemaVersion)
         {
             errors.Add("schema.unsupported_version", path, $"Expected schema version {SupportedSchemaVersion}, got {header.SchemaVersion}.");
