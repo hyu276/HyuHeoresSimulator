@@ -77,6 +77,11 @@ public sealed class TriggerDiscovery
 
     private IReadOnlyList<TriggerQueueItem> DiscoverDamage(DamageAppliedDomainEvent damage)
     {
+        if (damage.Resolution.HealthLost <= 0m)
+        {
+            return Array.Empty<TriggerQueueItem>();
+        }
+
         var items = new List<TriggerQueueItem>();
         items.AddRange(CreateItems(damage.Sequence, DamageDealtWindowOrder, TriggerIds.OnDamageDealt, damage.SourceId));
         if (damage.TargetId is { } targetId)

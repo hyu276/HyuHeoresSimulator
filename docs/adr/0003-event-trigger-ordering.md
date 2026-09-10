@@ -57,7 +57,9 @@ The current state-based check treats a board unit/hero with `CurrentHealth <= 0`
 
 ### Trigger discovery
 
-A `DamageApplied` event opens two ordered windows:
+A `DamageApplied` event opens damage-reaction windows only when the canonical damage resolution reports `HealthLost > 0`. A fully mitigated or prevented damage request remains observable as a damage-resolution event but does not count as dealing or receiving damage.
+
+For positive health loss, the windows are:
 
 1. `ON_DAMAGE_DEALT` for the damage source;
 2. `ON_DAMAGED` for the damaged target.

@@ -133,6 +133,24 @@ public sealed class StateEventTriggerTests
     }
 
     [Fact]
+    public void TriggerDiscovery_FullyPreventedDamageDoesNotOpenDamageWindows()
+    {
+        var dealerBinding = Binding("binding.dealer", SourceId, "ability.dealer", TriggerIds.OnDamageDealt);
+        var damagedBinding = Binding("binding.damaged", TargetId, "ability.damaged", TriggerIds.OnDamaged);
+        var state = CreateState(new[]
+        {
+            new DamagePrevention(StableId.Parse("prevention.full_shield"), TargetId, 10m)
+        });
+        var transition = new StateTransitionEngine().Apply(state, DamageOperation(5m));
+        var damageEvent = Assert.IsType<DamageAppliedDomainEvent>(Assert.Single(transition.Events));
+
+        var discovered = new TriggerDiscovery(new[] { dealerBinding, damagedBinding }).Discover(damageEvent);
+
+        Assert.Equal(0m, damageEvent.Resolution.HealthLost);
+        Assert.Empty(discovered);
+    }
+
+    [Fact]
     public void TriggerQueue_UsesHigherPriorityBeforeStableTieBreakers()
     {
         var low = new TriggerQueueItem(4, 1, Binding("binding.low", TargetId, "ability.low", TriggerIds.OnDamaged, 1));
