@@ -1,13 +1,15 @@
 /**
  * GAMEPLAY_RUNTIME_EVALUATOR
- * Purpose: Composes target, condition, and formula evaluation into one read-only deterministic runtime bridge for validated schema content.
- * Connections: Coordinates TargetResolver, ConditionEvaluator, DefaultConditionPredicateResolver, and DefaultFormulaRuntimeContext.
- * Risk: High because recursive selector filters and predicate/formula evaluation must share one coherent authoritative context.
+ * Purpose: Composes target, condition, formula, and effective-stat evaluation into one read-only deterministic runtime bridge.
+ * Connections: Coordinates TargetResolver, ConditionEvaluator, DefaultConditionPredicateResolver, DefaultFormulaRuntimeContext, and StatModifierPipeline.
+ * Risk: High because recursive evaluation and effective stat resolution must share one coherent authoritative context.
  */
 using System;
 using System.Collections.Generic;
 using HyuHeroes.Gameplay.Conditions;
+using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Formulas;
+using HyuHeroes.Gameplay.Modifiers;
 using HyuHeroes.Gameplay.Selectors;
 
 namespace HyuHeroes.Gameplay.Runtime;
@@ -16,13 +18,17 @@ public sealed class GameplayRuntimeEvaluator
 {
     private readonly ConditionEvaluator _conditionEvaluator;
     private readonly FormulaEvaluator _formulaEvaluator;
+    private readonly StatModifierPipeline _statPipeline;
     private readonly TargetResolver _targetResolver;
 
-    public GameplayRuntimeEvaluator(FormulaOperatorRegistry? formulaOperators = null)
+    public GameplayRuntimeEvaluator(
+        FormulaOperatorRegistry? formulaOperators = null,
+        StatModifierPipeline? statPipeline = null)
     {
         _targetResolver = new TargetResolver();
         _conditionEvaluator = new ConditionEvaluator();
         _formulaEvaluator = new FormulaEvaluator(formulaOperators ?? DefaultFormulaOperators.Create());
+        _statPipeline = statPipeline ?? new StatModifierPipeline();
     }
 
     public TargetResolution ResolveTargets(TargetSelectorSpec selector, GameplayRuntimeContext context) =>
@@ -59,6 +65,12 @@ public sealed class GameplayRuntimeEvaluator
         var runtimeContext = new DefaultFormulaRuntimeContext(this, context);
         return _formulaEvaluator.Evaluate(formula, new FormulaEvaluationContext(runtimeContext, runtimeContext));
     }
+
+    public decimal ResolveStat(RuntimeTarget target, StableId statId) =>
+        _statPipeline.Resolve(target, statId).EffectiveValue;
+
+    public StatResolution ResolveStatDetailed(RuntimeTarget target, StableId statId) =>
+        _statPipeline.Resolve(target, statId);
 
     internal IReadOnlyList<RuntimeTarget> ResolveTargetsForEvaluation(
         TargetSelectorSpec selector,
