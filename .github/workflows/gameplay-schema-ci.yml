@@ -1,0 +1,26 @@
+name: Gameplay Schema CI
+
+on:
+  push:
+    paths:
+      - "src/HyuHeroes.Gameplay/**"
+      - "tests/HyuHeroes.Gameplay.Tests/**"
+      - ".github/workflows/gameplay-schema-ci.yml"
+  pull_request:
+    paths:
+      - "src/HyuHeroes.Gameplay/**"
+      - "tests/HyuHeroes.Gameplay.Tests/**"
+      - ".github/workflows/gameplay-schema-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore
+        run: dotnet restore tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj
+      - name: Test
+        run: dotnet test tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj --configuration Release --no-restore
