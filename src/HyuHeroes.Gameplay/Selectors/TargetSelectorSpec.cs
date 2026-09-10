@@ -71,6 +71,12 @@ public sealed class TargetSelectorSpec
         int selectionCount = 1,
         IEnumerable<ConditionNode>? filters = null)
     {
+        EnsureDefined(scope, nameof(scope));
+        EnsureDefined(relation, nameof(relation));
+        EnsureDefined(zone, nameof(zone));
+        EnsureDefined(location, nameof(location));
+        EnsureDefined(selection, nameof(selection));
+
         if (selectionCount <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(selectionCount), "Selection count must be positive.");
@@ -92,4 +98,13 @@ public sealed class TargetSelectorSpec
     public TargetSelection Selection { get; }
     public int SelectionCount { get; }
     public IReadOnlyList<ConditionNode> Filters { get; }
+
+    private static void EnsureDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(typeof(TEnum), value))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, value, "Target selector enum value is not defined.");
+        }
+    }
 }
