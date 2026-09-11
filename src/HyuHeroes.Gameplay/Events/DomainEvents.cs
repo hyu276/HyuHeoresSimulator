@@ -1,12 +1,13 @@
 /**
  * DOMAIN_EVENTS
  * Purpose: Records immutable evidence of authoritative simulation changes for replay, trigger discovery, and presentation synchronization.
- * Connections: Emitted by StateTransitionEngine and consumed by TriggerDiscovery plus future replay, networking, and UI adapters.
+ * Connections: Emitted by StateTransitionEngine and LifecycleTransitionEngine and consumed by TriggerDiscovery plus replay, networking, and UI adapters.
  * Risk: High because event identity and ordering form the observable history of authoritative gameplay resolution.
  */
 using System;
 using HyuHeroes.Gameplay.Combat;
 using HyuHeroes.Gameplay.Core;
+using HyuHeroes.Gameplay.Selectors;
 
 namespace HyuHeroes.Gameplay.Events;
 
@@ -17,7 +18,10 @@ public static class DomainEventTypeIds
     public static readonly StableId ResourceChanged = StableId.Parse("event.resource_changed");
     public static readonly StableId StatSet = StableId.Parse("event.stat_set");
     public static readonly StableId ModifierAdded = StableId.Parse("event.modifier_added");
+    public static readonly StableId ModifierExpired = StableId.Parse("event.modifier_expired");
     public static readonly StableId EntityDied = StableId.Parse("event.entity_died");
+    public static readonly StableId ZoneChanged = StableId.Parse("event.zone_changed");
+    public static readonly StableId TimingAdvanced = StableId.Parse("event.timing_advanced");
 }
 
 public abstract class DomainEvent
@@ -140,8 +144,12 @@ public sealed class ModifierAddedDomainEvent : DomainEvent
         decimal value)
         : base(sequence, DomainEventTypeIds.ModifierAdded, sourceId, targetId)
     {
-        ModifierInstanceId = modifierInstanceId;
-        StatId = statId;
+        ModifierInstanceId = modifierInstanceId == default
+            ? throw new ArgumentException("Modifier instance ID must be a non-default StableId.", nameof(modifierInstanceId))
+            : modifierInstanceId;
+        StatId = statId == default
+            ? throw new ArgumentException("Stat ID must be a non-default StableId.", nameof(statId))
+            : statId;
         Value = value;
     }
 
@@ -150,10 +158,101 @@ public sealed class ModifierAddedDomainEvent : DomainEvent
     public decimal Value { get; }
 }
 
+public sealed class ModifierExpiredDomainEvent : DomainEvent
+{
+    public ModifierExpiredDomainEvent(
+        long sequence,
+        StableId sourceId,
+        StableId targetId,
+        StableId modifierInstanceId,
+        StableId durationId,
+        string reason)
+        : base(sequence, DomainEventTypeIds.ModifierExpired, sourceId, targetId)
+    {
+        ModifierInstanceId = modifierInstanceId == default
+            ? throw new ArgumentException("Modifier instance ID must be a non-default StableId.", nameof(modifierInstanceId))
+            : modifierInstanceId;
+        DurationId = durationId == default
+            ? throw new ArgumentException("Duration ID must be a non-default StableId.", nameof(durationId))
+            : durationId;
+        Reason = string.IsNullOrWhiteSpace(reason)
+            ? throw new ArgumentException("Modifier expiry reason cannot be empty.", nameof(reason))
+            : reason;
+    }
+
+    public StableId ModifierInstanceId { get; }
+    public StableId DurationId { get; }
+    public string Reason { get; }
+}
+
 public sealed class EntityDiedDomainEvent : DomainEvent
 {
     public EntityDiedDomainEvent(long sequence, StableId entityId)
         : base(sequence, DomainEventTypeIds.EntityDied, entityId)
     {
     }
+}
+
+public sealed class ZoneChangedDomainEvent : DomainEvent
+{
+    public ZoneChangedDomainEvent(
+        long sequence,
+        StableId entityId,
+        TargetZone previousZone,
+        TargetZone currentZone,
+        long residencyEpoch)
+        : base(sequence, DomainEventTypeIds.ZoneChanged, entityId)
+    {
+        if (!Enum.IsDefined(typeof(TargetZone), previousZone) || !Enum.IsDefined(typeof(TargetZone), currentZone))
+        {
+            throw new ArgumentOutOfRangeException(nameof(currentZone), "Zone change event contains an undefined zone.");
+        }
+
+        if (residencyEpoch <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(residencyEpoch), "Zone residency epoch must be positive.");
+        }
+
+        PreviousZone = previousZone;
+        CurrentZone = currentZone;
+        ResidencyEpoch = residencyEpoch;
+    }
+
+    public TargetZone PreviousZone { get; }
+    public TargetZone CurrentZone { get; }
+    public long ResidencyEpoch { get; }
+}
+
+public sealed class TimingAdvancedDomainEvent : DomainEvent
+{
+    private static readonly StableId LifecycleSourceId = StableId.Parse("system.lifecycle");
+
+    public TimingAdvancedDomainEvent(
+        long sequence,
+        int previousTurn,
+        StableId previousPhaseId,
+        int currentTurn,
+        StableId currentPhaseId)
+        : base(sequence, DomainEventTypeIds.TimingAdvanced, LifecycleSourceId)
+    {
+        if (previousTurn <= 0 || currentTurn <= 0 || currentTurn < previousTurn)
+        {
+            throw new ArgumentOutOfRangeException(nameof(currentTurn), "Timing event turn numbers must be positive and non-decreasing.");
+        }
+
+        if (previousPhaseId == default || currentPhaseId == default)
+        {
+            throw new ArgumentException("Timing event phase IDs must be non-default StableIds.");
+        }
+
+        PreviousTurn = previousTurn;
+        PreviousPhaseId = previousPhaseId;
+        CurrentTurn = currentTurn;
+        CurrentPhaseId = currentPhaseId;
+    }
+
+    public int PreviousTurn { get; }
+    public StableId PreviousPhaseId { get; }
+    public int CurrentTurn { get; }
+    public StableId CurrentPhaseId { get; }
 }
