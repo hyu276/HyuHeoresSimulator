@@ -217,13 +217,17 @@ public sealed class AbilityResolutionEngine
     private static MatchStateSnapshot RecordSuccessfulResolution(
         MatchStateSnapshot state,
         TriggerQueueItem item,
-        AbilityDefinition ability) =>
-        state.With(
+        AbilityDefinition ability)
+    {
+        var source = state.GetRequiredTarget(item.Binding.SourceId);
+        return state.With(
             abilityUsage: AbilityUsageRules.RecordResolution(
                 state.AbilityUsage,
                 item.Binding.SourceId,
                 ability.Header.Id,
-                state.TurnNumber));
+                state.TurnNumber,
+                source.ZoneResidencyEpoch));
+    }
 
     private static PendingAbilityChoice CreatePending(
         TriggerQueueItem item,
@@ -280,8 +284,13 @@ public sealed class AbilityResolutionEngine
             return false;
         }
 
+        var source = state.GetRequiredTarget(item.Binding.SourceId);
         var usage = AbilityUsageRules.Find(state.AbilityUsage, item.Binding.SourceId, ability.Header.Id);
-        return AbilityUsageRules.CanResolve(ability.UsageLimit, usage, state.TurnNumber);
+        return AbilityUsageRules.CanResolve(
+            ability.UsageLimit,
+            usage,
+            state.TurnNumber,
+            source.ZoneResidencyEpoch);
     }
 
     private static GameplayRuntimeContext CreateRuntimeContext(MatchStateSnapshot state, TriggerQueueItem item)
