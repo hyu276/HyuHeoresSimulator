@@ -150,12 +150,15 @@ public sealed class AbilityResolutionEngineTests
     }
 
     [Fact]
-    public void UsageRules_MaxWhileInZoneIsRejectedUntilZoneResidencyIsAuthoritative()
+    public void UsageRules_MaxWhileInZoneUsesCurrentResidencyEpoch()
     {
+        var abilityId = StableId.Parse("ability.zone_limited");
         var limit = new UsageLimitSpec(UsageLimitIds.MaxWhileInZone, Bag(
             Pair("count", new IntegerParameterValue(1))));
+        var record = new AbilityUsageRecord(SourceId, abilityId, 1, 3, 1, 3, 4, 1);
 
-        Assert.Throws<NotSupportedException>(() => AbilityUsageRules.CanResolve(limit, null, 3));
+        Assert.False(AbilityUsageRules.CanResolve(limit, record, 3, 4));
+        Assert.True(AbilityUsageRules.CanResolve(limit, record, 3, 5));
     }
 
     [Fact]
