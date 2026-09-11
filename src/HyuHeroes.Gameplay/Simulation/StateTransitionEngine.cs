@@ -1,14 +1,15 @@
 /**
  * STATE_TRANSITION_ENGINE
  * Purpose: Applies resolved effect operations to immutable match snapshots and emits ordered domain events plus state-based death transitions.
- * Connections: Consumes EffectHandlerRegistry operations and DamagePipeline results, then feeds TriggerDiscovery and future replay/presentation adapters.
- * Risk: High because this is the first authoritative mutation boundary and therefore owns narrow, deterministic state changes.
+ * Connections: Consumes EffectHandlerRegistry operations and DamagePipeline results, persists ability usage, then feeds trigger/replay/presentation adapters.
+ * Risk: High because this is the authoritative mutation boundary and therefore owns narrow, deterministic state changes.
  */
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using HyuHeroes.Gameplay.Abilities;
 using HyuHeroes.Gameplay.Combat;
 using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Effects;
@@ -29,32 +30,19 @@ public sealed class MatchStateSnapshot
         IEnumerable<StatModifier>? statModifiers = null,
         IEnumerable<DamageAdjustment>? damageAdjustments = null,
         IEnumerable<DamagePrevention>? damagePreventions = null,
-        long nextEventSequence = 1)
+        long nextEventSequence = 1,
+        IEnumerable<AbilityUsageRecord>? abilityUsage = null)
     {
-        if (turnNumber <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(turnNumber), "Turn number must be positive.");
-        }
-
-        if (phaseId == default)
-        {
-            throw new ArgumentException("Phase ID must be a non-default StableId.", nameof(phaseId));
-        }
-
-        if (laneCount <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(laneCount), "Lane count must be positive.");
-        }
-
-        if (nextEventSequence <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(nextEventSequence), "Next event sequence must be positive.");
-        }
+        if (turnNumber <= 0) throw new ArgumentOutOfRangeException(nameof(turnNumber), "Turn number must be positive.");
+        if (phaseId == default) throw new ArgumentException("Phase ID must be a non-default StableId.", nameof(phaseId));
+        if (laneCount <= 0) throw new ArgumentOutOfRangeException(nameof(laneCount), "Lane count must be positive.");
+        if (nextEventSequence <= 0) throw new ArgumentOutOfRangeException(nameof(nextEventSequence), "Next event sequence must be positive.");
 
         Targets = CopyUnique(targets, target => target.RuntimeId, nameof(targets));
         StatModifiers = CopyUnique(statModifiers, modifier => modifier.InstanceId, nameof(statModifiers));
         DamageAdjustments = CopyUnique(damageAdjustments, adjustment => adjustment.InstanceId, nameof(damageAdjustments));
         DamagePreventions = CopyUnique(damagePreventions, prevention => prevention.InstanceId, nameof(damagePreventions));
+        AbilityUsage = CopyUsage(abilityUsage);
         TurnNumber = turnNumber;
         PhaseId = phaseId;
         LaneCount = laneCount;
@@ -65,6 +53,7 @@ public sealed class MatchStateSnapshot
     public IReadOnlyList<StatModifier> StatModifiers { get; }
     public IReadOnlyList<DamageAdjustment> DamageAdjustments { get; }
     public IReadOnlyList<DamagePrevention> DamagePreventions { get; }
+    public IReadOnlyList<AbilityUsageRecord> AbilityUsage { get; }
     public int TurnNumber { get; }
     public StableId PhaseId { get; }
     public int LaneCount { get; }
@@ -78,7 +67,8 @@ public sealed class MatchStateSnapshot
         IEnumerable<RuntimeTarget>? targets = null,
         IEnumerable<StatModifier>? statModifiers = null,
         IEnumerable<DamagePrevention>? damagePreventions = null,
-        long? nextEventSequence = null) =>
+        long? nextEventSequence = null,
+        IEnumerable<AbilityUsageRecord>? abilityUsage = null) =>
         new(
             targets ?? Targets,
             TurnNumber,
@@ -87,7 +77,25 @@ public sealed class MatchStateSnapshot
             statModifiers ?? StatModifiers,
             DamageAdjustments,
             damagePreventions ?? DamagePreventions,
-            nextEventSequence ?? NextEventSequence);
+            nextEventSequence ?? NextEventSequence,
+            abilityUsage ?? AbilityUsage);
+
+    private static IReadOnlyList<AbilityUsageRecord> CopyUsage(IEnumerable<AbilityUsageRecord>? values)
+    {
+        var items = (values ?? Array.Empty<AbilityUsageRecord>()).ToArray();
+        if (items.Any(item => item is null))
+        {
+            throw new ArgumentException("Ability usage collection cannot contain null values.", nameof(values));
+        }
+
+        if (items.GroupBy(item => (item.SourceId, item.AbilityId)).Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException("Ability usage records must be unique per source and ability.", nameof(values));
+        }
+
+        return new ReadOnlyCollection<AbilityUsageRecord>(
+            items.OrderBy(item => item.SourceId).ThenBy(item => item.AbilityId).ToArray());
+    }
 
     private static IReadOnlyList<TItem> CopyUnique<TItem>(
         IEnumerable<TItem>? values,
@@ -143,16 +151,8 @@ public sealed class StateTransitionEngine
 
     public StateTransitionResult Apply(MatchStateSnapshot state, ResolvedEffectOperation operation)
     {
-        if (state is null)
-        {
-            throw new ArgumentNullException(nameof(state));
-        }
-
-        if (operation is null)
-        {
-            throw new ArgumentNullException(nameof(operation));
-        }
-
+        if (state is null) throw new ArgumentNullException(nameof(state));
+        if (operation is null) throw new ArgumentNullException(nameof(operation));
         if (!_handlers.TryGetValue(operation.Kind, out var handler))
         {
             throw new NotSupportedException($"No state transition handler exists for operation '{operation.Kind}'.");
@@ -283,9 +283,8 @@ public sealed class StateTransitionEngine
             .ToArray();
         foreach (var target in lethalTargets)
         {
-            var deadTarget = CloneAsDead(target);
             state = state.With(
-                targets: ReplaceTarget(state.Targets, deadTarget),
+                targets: ReplaceTarget(state.Targets, CloneAsDead(target)),
                 nextEventSequence: state.NextEventSequence + 1);
             events.Add(new EntityDiedDomainEvent(state.NextEventSequence - 1, target.RuntimeId));
         }
@@ -322,9 +321,7 @@ public sealed class StateTransitionEngine
             operation.TargetId);
     }
 
-    private static IReadOnlyList<RuntimeTarget> ReplaceTarget(
-        IReadOnlyList<RuntimeTarget> targets,
-        RuntimeTarget replacement) =>
+    private static IReadOnlyList<RuntimeTarget> ReplaceTarget(IReadOnlyList<RuntimeTarget> targets, RuntimeTarget replacement) =>
         new ReadOnlyCollection<RuntimeTarget>(
             targets.Select(target => target.RuntimeId == replacement.RuntimeId ? replacement : target).ToArray());
 
