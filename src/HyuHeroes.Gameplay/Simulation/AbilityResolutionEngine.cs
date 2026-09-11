@@ -1,14 +1,15 @@
 /**
  * ABILITY_RESOLUTION_ENGINE
- * Purpose: Drains deterministic trigger work into validated ability conditions, usage limits, sequential effects, state transitions, and newly discovered reactions.
+ * Purpose: Drains deterministic trigger work into validated ability conditions, usage limits, sequential effects, state transitions, player-choice continuations, and newly discovered reactions.
  * Connections: Coordinates AbilityRuntimeCatalog, GameplayRuntimeEvaluator, EffectSequenceEngine, MatchStateSnapshot, TriggerDiscovery, and DeterministicTriggerQueue.
- * Risk: High because this loop is the authoritative chain-resolution boundary and must prevent recursion, partial player-choice commits, and infinite trigger cycles.
+ * Risk: High because this loop is the authoritative chain-resolution boundary and must prevent recursion, stale continuations, partial player-choice commits, and infinite trigger cycles.
  */
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using HyuHeroes.Gameplay.Abilities;
+using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Events;
 using HyuHeroes.Gameplay.Modifiers;
 using HyuHeroes.Gameplay.Runtime;
@@ -22,16 +23,40 @@ public sealed class PendingAbilityChoice
     public PendingAbilityChoice(
         TriggerQueueItem queueItem,
         AbilityDefinition ability,
-        PendingEffectSequenceChoice effectChoice)
+        PendingEffectSequenceChoice effectChoice,
+        MatchStateSnapshot checkpointState,
+        int processedTriggers,
+        IEnumerable<EffectChoiceSelection>? resolvedChoices = null)
     {
         QueueItem = queueItem ?? throw new ArgumentNullException(nameof(queueItem));
         Ability = ability ?? throw new ArgumentNullException(nameof(ability));
         EffectChoice = effectChoice ?? throw new ArgumentNullException(nameof(effectChoice));
+        if (checkpointState is null) throw new ArgumentNullException(nameof(checkpointState));
+        if (processedTriggers < 0) throw new ArgumentOutOfRangeException(nameof(processedTriggers));
+
+        var choices = (resolvedChoices ?? Array.Empty<EffectChoiceSelection>()).ToArray();
+        if (choices.Any(choice => choice is null))
+        {
+            throw new ArgumentException("Resolved choices cannot contain null values.", nameof(resolvedChoices));
+        }
+
+        ResolvedChoices = new ReadOnlyCollection<EffectChoiceSelection>(choices);
+        ProcessedTriggers = processedTriggers;
+        ExpectedTurnNumber = checkpointState.TurnNumber;
+        ExpectedPhaseId = checkpointState.PhaseId;
+        ExpectedNextEventSequence = checkpointState.NextEventSequence;
+        ExpectedRandomState = checkpointState.RandomState;
     }
 
     public TriggerQueueItem QueueItem { get; }
     public AbilityDefinition Ability { get; }
     public PendingEffectSequenceChoice EffectChoice { get; }
+    public IReadOnlyList<EffectChoiceSelection> ResolvedChoices { get; }
+    public int ProcessedTriggers { get; }
+    public int ExpectedTurnNumber { get; }
+    public StableId ExpectedPhaseId { get; }
+    public long ExpectedNextEventSequence { get; }
+    public ulong ExpectedRandomState { get; }
 }
 
 public sealed class AbilityResolutionResult
@@ -95,17 +120,61 @@ public sealed class AbilityResolutionEngine
     {
         if (state is null) throw new ArgumentNullException(nameof(state));
         if (queue is null) throw new ArgumentNullException(nameof(queue));
+        return DrainQueue(state, queue, Array.Empty<DomainEvent>(), 0);
+    }
 
+    public AbilityResolutionResult ResolveChoice(
+        MatchStateSnapshot state,
+        DeterministicTriggerQueue queue,
+        PendingAbilityChoice pendingChoice,
+        IEnumerable<StableId> selectedTargetIds)
+    {
+        if (state is null) throw new ArgumentNullException(nameof(state));
+        if (queue is null) throw new ArgumentNullException(nameof(queue));
+        if (pendingChoice is null) throw new ArgumentNullException(nameof(pendingChoice));
+        if (selectedTargetIds is null) throw new ArgumentNullException(nameof(selectedTargetIds));
+
+        ValidateCheckpoint(state, pendingChoice);
+        ValidateBinding(pendingChoice.QueueItem, pendingChoice.Ability);
+        if (!CanResolveAbility(state, pendingChoice.QueueItem, pendingChoice.Ability))
+        {
+            throw new InvalidOperationException("Pending ability is no longer eligible at its continuation checkpoint.");
+        }
+
+        var resolvedChoice = new EffectChoiceSelection(
+            pendingChoice.EffectChoice.EffectPath,
+            pendingChoice.EffectChoice.Choice.ParameterName,
+            selectedTargetIds);
+        var choices = pendingChoice.ResolvedChoices.Concat(new[] { resolvedChoice }).ToArray();
+        var speculative = ExecuteAbility(state, pendingChoice.QueueItem, pendingChoice.Ability, choices);
+        if (speculative.PendingChoice is not null)
+        {
+            var pending = CreatePending(
+                pendingChoice.QueueItem,
+                pendingChoice.Ability,
+                speculative.PendingChoice,
+                state,
+                pendingChoice.ProcessedTriggers,
+                choices);
+            return new AbilityResolutionResult(state, Array.Empty<DomainEvent>(), pendingChoice.ProcessedTriggers, pending);
+        }
+
+        var committedState = RecordSuccessfulResolution(speculative.State, pendingChoice.QueueItem, pendingChoice.Ability);
+        _triggerDiscovery.DiscoverInto(speculative.Events, queue);
+        return DrainQueue(committedState, queue, speculative.Events, pendingChoice.ProcessedTriggers);
+    }
+
+    private AbilityResolutionResult DrainQueue(
+        MatchStateSnapshot state,
+        DeterministicTriggerQueue queue,
+        IEnumerable<DomainEvent> initialEvents,
+        int processedTriggers)
+    {
         var currentState = state;
-        var emittedEvents = new List<DomainEvent>();
-        var processedTriggers = 0;
+        var emittedEvents = new List<DomainEvent>(initialEvents);
         while (queue.Count > 0)
         {
-            if (processedTriggers >= _triggerStepBudget)
-            {
-                throw new ResolutionBudgetExceededException(_triggerStepBudget);
-            }
-
+            RequireTriggerBudget(processedTriggers);
             var item = queue.Dequeue();
             processedTriggers++;
             var ability = _catalog.GetRequired(item.Binding.AbilityId);
@@ -115,25 +184,74 @@ public sealed class AbilityResolutionEngine
                 continue;
             }
 
-            var activeTargetId = item.OriginatingEvent.TargetId ?? item.Binding.SourceId;
-            var speculative = _effects.Execute(currentState, item.Binding.SourceId, ability.Effects, activeTargetId);
+            var speculative = ExecuteAbility(currentState, item, ability, Array.Empty<EffectChoiceSelection>());
             if (speculative.PendingChoice is not null)
             {
-                var pending = new PendingAbilityChoice(item, ability, speculative.PendingChoice);
+                var pending = CreatePending(item, ability, speculative.PendingChoice, currentState, processedTriggers);
                 return new AbilityResolutionResult(currentState, emittedEvents, processedTriggers, pending);
             }
 
-            currentState = speculative.State.With(
-                abilityUsage: AbilityUsageRules.RecordResolution(
-                    speculative.State.AbilityUsage,
-                    item.Binding.SourceId,
-                    ability.Header.Id,
-                    speculative.State.TurnNumber));
+            currentState = RecordSuccessfulResolution(speculative.State, item, ability);
             emittedEvents.AddRange(speculative.Events);
             _triggerDiscovery.DiscoverInto(speculative.Events, queue);
         }
 
         return new AbilityResolutionResult(currentState, emittedEvents, processedTriggers);
+    }
+
+    private EffectSequenceResult ExecuteAbility(
+        MatchStateSnapshot state,
+        TriggerQueueItem item,
+        AbilityDefinition ability,
+        IEnumerable<EffectChoiceSelection> resolvedChoices)
+    {
+        var activeTargetId = item.OriginatingEvent.TargetId ?? item.Binding.SourceId;
+        return _effects.Execute(
+            state,
+            item.Binding.SourceId,
+            ability.Effects,
+            activeTargetId,
+            resolvedChoices);
+    }
+
+    private static MatchStateSnapshot RecordSuccessfulResolution(
+        MatchStateSnapshot state,
+        TriggerQueueItem item,
+        AbilityDefinition ability) =>
+        state.With(
+            abilityUsage: AbilityUsageRules.RecordResolution(
+                state.AbilityUsage,
+                item.Binding.SourceId,
+                ability.Header.Id,
+                state.TurnNumber));
+
+    private static PendingAbilityChoice CreatePending(
+        TriggerQueueItem item,
+        AbilityDefinition ability,
+        PendingEffectSequenceChoice effectChoice,
+        MatchStateSnapshot checkpointState,
+        int processedTriggers,
+        IEnumerable<EffectChoiceSelection>? resolvedChoices = null) =>
+        new(item, ability, effectChoice, checkpointState, processedTriggers, resolvedChoices);
+
+    private void RequireTriggerBudget(int processedTriggers)
+    {
+        if (processedTriggers >= _triggerStepBudget)
+        {
+            throw new ResolutionBudgetExceededException(_triggerStepBudget);
+        }
+    }
+
+    private static void ValidateCheckpoint(MatchStateSnapshot state, PendingAbilityChoice pendingChoice)
+    {
+        var matches = state.TurnNumber == pendingChoice.ExpectedTurnNumber
+            && state.PhaseId == pendingChoice.ExpectedPhaseId
+            && state.NextEventSequence == pendingChoice.ExpectedNextEventSequence
+            && state.RandomState == pendingChoice.ExpectedRandomState;
+        if (!matches)
+        {
+            throw new InvalidOperationException("Pending choice continuation checkpoint does not match the authoritative match snapshot.");
+        }
     }
 
     private static void ValidateBinding(TriggerQueueItem item, AbilityDefinition ability)
