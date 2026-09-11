@@ -1,8 +1,8 @@
 /**
  * STAT_MODIFIER_PIPELINE
  * Purpose: Resolves effective runtime stats from immutable base values plus deterministic explicit modifier layers.
- * Connections: Consumed by GameplayRuntimeEvaluator, condition predicates, formula variables, effect planning, and future damage resolution.
- * Risk: High because modifier ordering and clamping directly affect authoritative numeric gameplay outcomes and replay determinism.
+ * Connections: Consumed by GameplayRuntimeEvaluator, condition predicates, formula variables, effect planning, damage resolution, and lifecycle expiry.
+ * Risk: High because modifier ordering, duration metadata, and clamping directly affect authoritative numeric gameplay outcomes and replay determinism.
  */
 using System;
 using System.Collections.Generic;
@@ -10,6 +10,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Runtime;
+using HyuHeroes.Gameplay.Selectors;
 
 namespace HyuHeroes.Gameplay.Modifiers;
 
@@ -29,6 +30,57 @@ public enum StatModifierOperation
     Maximum
 }
 
+public sealed class StatModifierDurationState
+{
+    public StatModifierDurationState(
+        StableId typeId,
+        int createdTurn,
+        int? expiresAtTurn = null,
+        TargetZone? requiredTargetZone = null,
+        long? sourceResidencyEpoch = null,
+        long? targetResidencyEpoch = null)
+    {
+        if (typeId == default)
+        {
+            throw new ArgumentException("Duration type ID must be a non-default StableId.", nameof(typeId));
+        }
+
+        if (createdTurn <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(createdTurn), "Created turn must be positive.");
+        }
+
+        if (expiresAtTurn is <= 0 || expiresAtTurn < createdTurn)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expiresAtTurn), "Expiry turn must be null or not earlier than the created turn.");
+        }
+
+        if (requiredTargetZone is { } zone && !Enum.IsDefined(typeof(TargetZone), zone))
+        {
+            throw new ArgumentOutOfRangeException(nameof(requiredTargetZone), zone, "Required target zone is not defined.");
+        }
+
+        if (sourceResidencyEpoch is <= 0 || targetResidencyEpoch is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceResidencyEpoch), "Residency epochs must be null or positive.");
+        }
+
+        TypeId = typeId;
+        CreatedTurn = createdTurn;
+        ExpiresAtTurn = expiresAtTurn;
+        RequiredTargetZone = requiredTargetZone;
+        SourceResidencyEpoch = sourceResidencyEpoch;
+        TargetResidencyEpoch = targetResidencyEpoch;
+    }
+
+    public StableId TypeId { get; }
+    public int CreatedTurn { get; }
+    public int? ExpiresAtTurn { get; }
+    public TargetZone? RequiredTargetZone { get; }
+    public long? SourceResidencyEpoch { get; }
+    public long? TargetResidencyEpoch { get; }
+}
+
 public sealed class StatModifier
 {
     public StatModifier(
@@ -40,7 +92,8 @@ public sealed class StatModifier
         decimal value,
         StatModifierLayer layer,
         int priority = 0,
-        StableId? durationId = null)
+        StableId? durationId = null,
+        StatModifierDurationState? durationState = null)
     {
         if (instanceId == default || sourceId == default || targetId == default || statId == default)
         {
@@ -62,6 +115,11 @@ public sealed class StatModifier
             throw new ArgumentException("Duration ID must be null or a non-default StableId.", nameof(durationId));
         }
 
+        if (durationState is not null && durationId is { } configuredDurationId && configuredDurationId != durationState.TypeId)
+        {
+            throw new ArgumentException("Duration ID and runtime duration state must describe the same duration primitive.", nameof(durationState));
+        }
+
         InstanceId = instanceId;
         SourceId = sourceId;
         TargetId = targetId;
@@ -70,7 +128,8 @@ public sealed class StatModifier
         Value = value;
         Layer = layer;
         Priority = priority;
-        DurationId = durationId;
+        DurationId = durationState?.TypeId ?? durationId;
+        DurationState = durationState;
     }
 
     public StableId InstanceId { get; }
@@ -82,6 +141,7 @@ public sealed class StatModifier
     public StatModifierLayer Layer { get; }
     public int Priority { get; }
     public StableId? DurationId { get; }
+    public StatModifierDurationState? DurationState { get; }
 }
 
 public sealed class StatResolution
