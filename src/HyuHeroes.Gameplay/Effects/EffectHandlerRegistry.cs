@@ -1,7 +1,7 @@
 /**
  * EFFECT_HANDLER_REGISTRY
  * Purpose: Converts validated declarative effects into deterministic resolved operations without mutating authoritative match state.
- * Connections: Uses GameplayRuntimeEvaluator for selectors, conditions, formulas, and feeds future reducers, damage resolution, and event queues.
+ * Connections: Uses GameplayRuntimeEvaluator for selectors, conditions, formulas, and feeds reducers, damage resolution, event queues, and choice continuation.
  * Risk: High because effect planning defines the executable boundary between authoring data and authoritative state-transition logic.
  */
 using System;
@@ -95,6 +95,36 @@ public sealed class PendingEffectChoice
     public TargetResolution Resolution { get; }
 }
 
+public sealed class EffectChoiceOverride
+{
+    public EffectChoiceOverride(string parameterName, IEnumerable<StableId> selectedTargetIds)
+    {
+        ParameterName = string.IsNullOrWhiteSpace(parameterName)
+            ? throw new ArgumentException("Choice parameter name cannot be empty.", nameof(parameterName))
+            : parameterName;
+        if (selectedTargetIds is null)
+        {
+            throw new ArgumentNullException(nameof(selectedTargetIds));
+        }
+
+        var ids = selectedTargetIds.ToArray();
+        if (ids.Any(id => id == default))
+        {
+            throw new ArgumentException("Selected target IDs cannot contain default values.", nameof(selectedTargetIds));
+        }
+
+        if (ids.Distinct().Count() != ids.Length)
+        {
+            throw new ArgumentException("Selected target IDs must be unique.", nameof(selectedTargetIds));
+        }
+
+        SelectedTargetIds = new ReadOnlyCollection<StableId>(ids);
+    }
+
+    public string ParameterName { get; }
+    public IReadOnlyList<StableId> SelectedTargetIds { get; }
+}
+
 public sealed class EffectExecutionResult
 {
     public EffectExecutionResult(IEnumerable<ResolvedEffectOperation>? operations = null, PendingEffectChoice? pendingChoice = null)
@@ -110,16 +140,22 @@ public sealed class EffectExecutionResult
 
 public sealed class EffectExecutionContext
 {
-    public EffectExecutionContext(GameplayEffectExecutor executor, GameplayRuntimeEvaluator evaluator, GameplayRuntimeContext runtime)
+    public EffectExecutionContext(
+        GameplayEffectExecutor executor,
+        GameplayRuntimeEvaluator evaluator,
+        GameplayRuntimeContext runtime,
+        EffectChoiceOverride? choiceOverride = null)
     {
         Executor = executor ?? throw new ArgumentNullException(nameof(executor));
         Evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
         Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        ChoiceOverride = choiceOverride;
     }
 
     public GameplayEffectExecutor Executor { get; }
     public GameplayRuntimeEvaluator Evaluator { get; }
     public GameplayRuntimeContext Runtime { get; }
+    public EffectChoiceOverride? ChoiceOverride { get; }
 }
 
 public sealed class EffectHandlerRegistration
@@ -182,21 +218,14 @@ public sealed class GameplayEffectExecutor
         _registry = registry ?? DefaultEffectHandlerRegistry.Create();
     }
 
-    public EffectExecutionResult Resolve(EffectDefinition effect, GameplayRuntimeContext runtime)
-    {
-        if (effect is null)
-        {
-            throw new ArgumentNullException(nameof(effect));
-        }
+    public EffectExecutionResult Resolve(EffectDefinition effect, GameplayRuntimeContext runtime) =>
+        ResolveInternal(effect, runtime, null);
 
-        if (runtime is null)
-        {
-            throw new ArgumentNullException(nameof(runtime));
-        }
-
-        var context = new EffectExecutionContext(this, _evaluator, runtime);
-        return _registry.GetRequired(effect.TypeId).Resolve(effect, context);
-    }
+    public EffectExecutionResult ResolveWithChoice(
+        EffectDefinition effect,
+        GameplayRuntimeContext runtime,
+        EffectChoiceOverride choiceOverride) =>
+        ResolveInternal(effect, runtime, choiceOverride ?? throw new ArgumentNullException(nameof(choiceOverride)));
 
     public EffectExecutionResult ResolveAll(IEnumerable<EffectDefinition> effects, GameplayRuntimeContext runtime)
     {
@@ -217,6 +246,25 @@ public sealed class GameplayEffectExecutor
         }
 
         return new EffectExecutionResult(operations);
+    }
+
+    private EffectExecutionResult ResolveInternal(
+        EffectDefinition effect,
+        GameplayRuntimeContext runtime,
+        EffectChoiceOverride? choiceOverride)
+    {
+        if (effect is null)
+        {
+            throw new ArgumentNullException(nameof(effect));
+        }
+
+        if (runtime is null)
+        {
+            throw new ArgumentNullException(nameof(runtime));
+        }
+
+        var context = new EffectExecutionContext(this, _evaluator, runtime, choiceOverride);
+        return _registry.GetRequired(effect.TypeId).Resolve(effect, context);
     }
 }
 
@@ -335,6 +383,11 @@ public static class DefaultEffectHandlerRegistry
 
     private static EffectExecutionResult ResolveConditional(EffectDefinition effect, EffectExecutionContext context)
     {
+        if (context.ChoiceOverride is not null)
+        {
+            throw new InvalidOperationException("Choice continuation must target a leaf effect, not a CONDITIONAL container.");
+        }
+
         var condition = effect.Parameters.GetRequired<ConditionParameterValue>("if").Value;
         var branchName = context.Evaluator.EvaluateCondition(condition, context.Runtime) ? "thenEffects" : "elseEffects";
         if (!effect.Parameters.TryGet(branchName, out var branchValue) || branchValue is not EffectListParameterValue branch)
@@ -345,10 +398,51 @@ public static class DefaultEffectHandlerRegistry
         return context.Executor.ResolveAll(branch.Value, context.Runtime);
     }
 
-    private static TargetResolution ResolveTarget(EffectDefinition effect, EffectExecutionContext context, string parameterName) =>
-        context.Evaluator.ResolveTargets(
+    private static TargetResolution ResolveTarget(
+        EffectDefinition effect,
+        EffectExecutionContext context,
+        string parameterName)
+    {
+        var resolution = context.Evaluator.ResolveTargets(
             effect.Parameters.GetRequired<SelectorParameterValue>(parameterName).Value,
             context.Runtime);
+        return context.ChoiceOverride is null
+            ? resolution
+            : ApplyChoiceOverride(resolution, context.ChoiceOverride, parameterName, context.Runtime);
+    }
+
+    private static TargetResolution ApplyChoiceOverride(
+        TargetResolution resolution,
+        EffectChoiceOverride choiceOverride,
+        string parameterName,
+        GameplayRuntimeContext runtime)
+    {
+        if (choiceOverride.ParameterName != parameterName)
+        {
+            throw new InvalidOperationException(
+                $"Choice continuation targets parameter '{choiceOverride.ParameterName}' but effect expects '{parameterName}'.");
+        }
+
+        if (!resolution.RequiresPlayerChoice)
+        {
+            throw new InvalidOperationException("Choice continuation can only satisfy a PLAYER_CHOICE selector.");
+        }
+
+        if (choiceOverride.SelectedTargetIds.Count != resolution.RequiredSelectionCount)
+        {
+            throw new InvalidOperationException(
+                $"Choice requires exactly {resolution.RequiredSelectionCount} target(s), but {choiceOverride.SelectedTargetIds.Count} were supplied.");
+        }
+
+        var candidateIds = resolution.Candidates.Select(candidate => candidate.RuntimeId).ToHashSet();
+        if (choiceOverride.SelectedTargetIds.Any(id => !candidateIds.Contains(id)))
+        {
+            throw new InvalidOperationException("Choice contains a target that is not a legal candidate in the replayed authoritative state.");
+        }
+
+        var selected = choiceOverride.SelectedTargetIds.Select(runtime.GetRequiredTarget).ToArray();
+        return new TargetResolution(resolution.Candidates, selected, requiresPlayerChoice: false, requiredSelectionCount: 0);
+    }
 
     private static EffectExecutionResult Pending(EffectDefinition effect, string parameterName, TargetResolution resolution) =>
         new(pendingChoice: new PendingEffectChoice(effect.TypeId, parameterName, resolution));
