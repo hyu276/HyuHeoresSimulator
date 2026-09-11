@@ -1,7 +1,7 @@
 /**
  * ABILITY_RUNTIME
  * Purpose: Defines immutable runtime ability lookup and usage-ledger rules used by deterministic trigger resolution.
- * Connections: AbilityResolutionEngine consumes the catalog and usage policy while MatchStateSnapshot persists usage records.
+ * Connections: AbilityResolutionEngine consumes the catalog and usage policy while MatchStateSnapshot persists usage records and source zone-residency epochs.
  * Risk: High because ability identity and usage-limit semantics decide whether triggered effects are eligible to execute.
  */
 using System;
@@ -55,14 +55,16 @@ public sealed class AbilityUsageRecord
         int totalResolutions,
         int turnNumber,
         int resolutionsThisTurn,
-        int? lastResolvedTurn)
+        int? lastResolvedTurn,
+        long zoneResidencyEpoch = 1,
+        int resolutionsThisResidency = 0)
     {
         if (sourceId == default || abilityId == default)
         {
             throw new ArgumentException("Ability usage source and ability IDs must be non-default StableIds.");
         }
 
-        if (totalResolutions < 0 || resolutionsThisTurn < 0)
+        if (totalResolutions < 0 || resolutionsThisTurn < 0 || resolutionsThisResidency < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(totalResolutions), "Ability usage counters cannot be negative.");
         }
@@ -77,12 +79,19 @@ public sealed class AbilityUsageRecord
             throw new ArgumentOutOfRangeException(nameof(lastResolvedTurn), "Last resolved turn must be null or within the recorded turn range.");
         }
 
+        if (zoneResidencyEpoch <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(zoneResidencyEpoch), "Zone residency epoch must be positive.");
+        }
+
         SourceId = sourceId;
         AbilityId = abilityId;
         TotalResolutions = totalResolutions;
         TurnNumber = turnNumber;
         ResolutionsThisTurn = resolutionsThisTurn;
         LastResolvedTurn = lastResolvedTurn;
+        ZoneResidencyEpoch = zoneResidencyEpoch;
+        ResolutionsThisResidency = resolutionsThisResidency;
     }
 
     public StableId SourceId { get; }
@@ -91,6 +100,8 @@ public sealed class AbilityUsageRecord
     public int TurnNumber { get; }
     public int ResolutionsThisTurn { get; }
     public int? LastResolvedTurn { get; }
+    public long ZoneResidencyEpoch { get; }
+    public int ResolutionsThisResidency { get; }
 }
 
 public static class AbilityUsageRules
@@ -101,11 +112,20 @@ public static class AbilityUsageRules
         StableId abilityId) =>
         records.FirstOrDefault(record => record.SourceId == sourceId && record.AbilityId == abilityId);
 
-    public static bool CanResolve(UsageLimitSpec? limit, AbilityUsageRecord? record, int currentTurn)
+    public static bool CanResolve(
+        UsageLimitSpec? limit,
+        AbilityUsageRecord? record,
+        int currentTurn,
+        long currentZoneResidencyEpoch = 1)
     {
         if (limit is null)
         {
             return true;
+        }
+
+        if (currentZoneResidencyEpoch <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(currentZoneResidencyEpoch), "Zone residency epoch must be positive.");
         }
 
         var currentTurnCount = record?.TurnNumber == currentTurn ? record.ResolutionsThisTurn : 0;
@@ -115,8 +135,10 @@ public static class AbilityUsageRules
         if (limit.TypeId == UsageLimitIds.CooldownTurns) return IsCooldownReady(limit, record, currentTurn);
         if (limit.TypeId == UsageLimitIds.MaxWhileInZone)
         {
-            throw new NotSupportedException(
-                "MAX_N_TIMES_WHILE_IN_ZONE requires a persisted zone-residency epoch and is not approximated by the current runtime.");
+            var residencyCount = record?.ZoneResidencyEpoch == currentZoneResidencyEpoch
+                ? record.ResolutionsThisResidency
+                : 0;
+            return residencyCount < GetRequiredCount(limit, "count");
         }
 
         throw new InvalidOperationException($"Unsupported usage-limit primitive '{limit.TypeId}'.");
@@ -126,8 +148,14 @@ public static class AbilityUsageRules
         IEnumerable<AbilityUsageRecord> records,
         StableId sourceId,
         StableId abilityId,
-        int currentTurn)
+        int currentTurn,
+        long currentZoneResidencyEpoch = 1)
     {
+        if (currentZoneResidencyEpoch <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(currentZoneResidencyEpoch), "Zone residency epoch must be positive.");
+        }
+
         var items = records.ToList();
         var existing = Find(items, sourceId, abilityId);
         var updated = new AbilityUsageRecord(
@@ -136,7 +164,11 @@ public static class AbilityUsageRules
             (existing?.TotalResolutions ?? 0) + 1,
             currentTurn,
             existing?.TurnNumber == currentTurn ? existing.ResolutionsThisTurn + 1 : 1,
-            currentTurn);
+            currentTurn,
+            currentZoneResidencyEpoch,
+            existing?.ZoneResidencyEpoch == currentZoneResidencyEpoch
+                ? existing.ResolutionsThisResidency + 1
+                : 1);
         items.RemoveAll(record => record.SourceId == sourceId && record.AbilityId == abilityId);
         items.Add(updated);
         return new ReadOnlyCollection<AbilityUsageRecord>(
