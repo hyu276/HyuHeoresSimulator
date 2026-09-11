@@ -43,7 +43,11 @@ public sealed class AbilityResolutionEngineTests
             Pair("target", Selector(TargetScope.Unit, TargetRelation.Enemy, TargetZone.Board)),
             Pair("amount", FormulaExpression.Variable(StableId.Parse("variable.source.attack"))),
             Pair("damageType", new EnumParameterValue("PHYSICAL"))));
-        var ability = Ability(abilityId, TriggerIds.OnDamageDealt, new[] { setAttack, damage });
+        var ability = Ability(
+            abilityId,
+            TriggerIds.OnDamageDealt,
+            new[] { setAttack, damage },
+            usageLimit: new UsageLimitSpec(UsageLimitIds.OncePerMatch));
         var binding = Binding("binding.combo", SourceId, abilityId, TriggerIds.OnDamageDealt);
         var transition = new StateTransitionEngine().Apply(CreateState(targetHealth: 20m), DamageOperation(1m));
         var queue = QueueFromEvents(new[] { binding }, transition.Events);
