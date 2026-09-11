@@ -1,8 +1,8 @@
 /**
  * EFFECT_REGISTRY
  * Purpose: Defines structured effect instances and the controlled metadata catalog for authorable state changes.
- * Connections: Ability schemas reference effects while validators and future dashboards consume registry metadata.
- * Risk: High because effect IDs form the stable vocabulary that future execution handlers must implement.
+ * Connections: Ability schemas reference effects while validators and dashboards consume registry metadata.
+ * Risk: High because effect IDs and parameter contracts form the stable vocabulary that execution handlers implement.
  */
 using System;
 using System.Collections.Generic;
@@ -87,7 +87,13 @@ public static class DefaultEffectRegistry
             Register(EffectIds.Transform, "effect.transform", "Transform selected entities into another card definition.",
                 Selector("target"), StableId("cardDefinitionId", RegistryReferenceKind.CardDefinition)),
             Register(EffectIds.ModifyStat, "effect.modify_stat", "Apply a duration-bound stat modification.",
-                Selector("target"), StableId("statId", RegistryReferenceKind.Stat), Enum("operation", "ADD", "MULTIPLY", "SET", "MINIMUM", "MAXIMUM"), Formula("value"), StableId("durationId", RegistryReferenceKind.Duration)),
+                Selector("target"),
+                StableId("statId", RegistryReferenceKind.Stat),
+                Enum("operation", "ADD", "MULTIPLY", "SET", "MINIMUM", "MAXIMUM"),
+                Formula("value"),
+                StableId("durationId", RegistryReferenceKind.Duration),
+                OptionalInteger("durationTurns", 1, 100),
+                OptionalEnum("durationZone", "BOARD", "HAND", "DECK", "GRAVEYARD")),
             Register(EffectIds.AddModifier, "effect.add_modifier", "Attach a reusable modifier definition to selected targets.",
                 Selector("target"), StableId("modifierId", RegistryReferenceKind.Modifier)),
             Register(EffectIds.RemoveModifier, "effect.remove_modifier", "Remove matching modifiers from selected targets.",
@@ -133,4 +139,10 @@ public static class DefaultEffectRegistry
 
     private static ParameterSchema Enum(string name, params string[] allowedValues) =>
         new(name, ParameterKind.Enum, allowedValues: allowedValues, editorHint: "select");
+
+    private static ParameterSchema OptionalInteger(string name, decimal minimum, decimal maximum) =>
+        new(name, ParameterKind.Integer, required: false, minimum: minimum, maximum: maximum, editorHint: "number");
+
+    private static ParameterSchema OptionalEnum(string name, params string[] allowedValues) =>
+        new(name, ParameterKind.Enum, required: false, allowedValues: allowedValues, editorHint: "select");
 }
