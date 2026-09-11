@@ -1,7 +1,7 @@
 /**
  * STATE_TRANSITION_ENGINE
  * Purpose: Applies resolved effect operations to immutable match snapshots and emits ordered domain events plus state-based death transitions.
- * Connections: Consumes EffectHandlerRegistry operations and DamagePipeline results, persists ability usage and deterministic RNG state, then feeds trigger/replay/presentation adapters.
+ * Connections: Consumes EffectHandlerRegistry operations and DamagePipeline results, persists ability usage, deterministic RNG state, modifier lifetime state, then feeds trigger/replay/presentation adapters.
  * Risk: High because this is the authoritative mutation boundary and therefore owns narrow, deterministic state changes.
  */
 using System;
@@ -10,12 +10,15 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using HyuHeroes.Gameplay.Abilities;
+using HyuHeroes.Gameplay.Authoring;
 using HyuHeroes.Gameplay.Combat;
 using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Effects;
 using HyuHeroes.Gameplay.Events;
 using HyuHeroes.Gameplay.Modifiers;
+using HyuHeroes.Gameplay.Registries;
 using HyuHeroes.Gameplay.Runtime;
+using HyuHeroes.Gameplay.Schema;
 using HyuHeroes.Gameplay.Selectors;
 
 namespace HyuHeroes.Gameplay.Simulation;
@@ -72,11 +75,13 @@ public sealed class MatchStateSnapshot
         IEnumerable<DamagePrevention>? damagePreventions = null,
         long? nextEventSequence = null,
         IEnumerable<AbilityUsageRecord>? abilityUsage = null,
-        ulong? randomState = null) =>
+        ulong? randomState = null,
+        int? turnNumber = null,
+        StableId? phaseId = null) =>
         new(
             targets ?? Targets,
-            TurnNumber,
-            PhaseId,
+            turnNumber ?? TurnNumber,
+            phaseId ?? PhaseId,
             LaneCount,
             statModifiers ?? StatModifiers,
             DamageAdjustments,
@@ -138,7 +143,6 @@ public sealed class StateTransitionResult
 public sealed class StateTransitionEngine
 {
     private static readonly StableId MaxHealthStatId = StableId.Parse("stat.max_health");
-    private static readonly StableId PermanentDurationId = StableId.Parse("duration.permanent");
     private readonly IReadOnlyDictionary<ResolvedEffectOperationKind, Func<MatchStateSnapshot, ResolvedEffectOperation, StateTransitionResult>> _handlers;
 
     public StateTransitionEngine()
@@ -163,7 +167,8 @@ public sealed class StateTransitionEngine
             throw new NotSupportedException($"No state transition handler exists for operation '{operation.Kind}'.");
         }
 
-        return ApplyStateBasedDeaths(handler(state, operation));
+        var transition = ApplyStateBasedDeaths(handler(state, operation));
+        return new LifecycleTransitionEngine().ReconcileContinuousDurations(transition.State, transition.Events);
     }
 
     private static StateTransitionResult RejectUnsupportedDraw(MatchStateSnapshot state, ResolvedEffectOperation operation) =>
@@ -254,6 +259,8 @@ public sealed class StateTransitionEngine
         var durationId = RequireReference(operation.SecondaryReferenceId, "duration");
         var target = state.GetRequiredTarget(operation.TargetId);
         target.GetRequiredStat(statId);
+        var durationSpec = operation.Duration ?? new DurationSpec(durationId);
+        var durationState = CreateDurationState(state, operation.SourceId, target, durationSpec);
         var modifierId = StableId.Parse(
             "modifier.runtime_" + state.NextEventSequence.ToString("D8", CultureInfo.InvariantCulture));
         var modifier = new StatModifier(
@@ -263,8 +270,9 @@ public sealed class StateTransitionEngine
             statId,
             ParseModifierOperation(operation.Qualifier),
             operation.Amount,
-            durationId == PermanentDurationId ? StatModifierLayer.PermanentMatch : StatModifierLayer.Temporary,
-            durationId: durationId);
+            durationId == DurationIds.Permanent ? StatModifierLayer.PermanentMatch : StatModifierLayer.Temporary,
+            durationId: durationId,
+            durationState: durationState);
         var modifiers = state.StatModifiers.Concat(new[] { modifier });
         var eventRecord = new ModifierAddedDomainEvent(
             state.NextEventSequence,
@@ -275,6 +283,56 @@ public sealed class StateTransitionEngine
             operation.Amount);
         var updatedState = state.With(statModifiers: modifiers, nextEventSequence: state.NextEventSequence + 1);
         return new StateTransitionResult(updatedState, new DomainEvent[] { eventRecord });
+    }
+
+    private static StatModifierDurationState CreateDurationState(
+        MatchStateSnapshot state,
+        StableId sourceId,
+        RuntimeTarget target,
+        DurationSpec duration)
+    {
+        var source = state.GetRequiredTarget(sourceId);
+        if (duration.TypeId == DurationIds.Permanent || duration.TypeId == DurationIds.UntilEndOfTurn)
+        {
+            return new StatModifierDurationState(duration.TypeId, state.TurnNumber);
+        }
+
+        if (duration.TypeId == DurationIds.UntilStartOfNextTurn)
+        {
+            return new StatModifierDurationState(duration.TypeId, state.TurnNumber, state.TurnNumber + 1);
+        }
+
+        if (duration.TypeId == DurationIds.ForNTurns)
+        {
+            var turns = duration.Parameters.GetRequired<IntegerParameterValue>("turns").Value;
+            return new StatModifierDurationState(duration.TypeId, state.TurnNumber, state.TurnNumber + turns);
+        }
+
+        if (duration.TypeId == DurationIds.WhileSourceExists)
+        {
+            return new StatModifierDurationState(
+                duration.TypeId,
+                state.TurnNumber,
+                sourceResidencyEpoch: source.ZoneResidencyEpoch);
+        }
+
+        if (duration.TypeId == DurationIds.WhileInZone)
+        {
+            var requiredZone = ParseZone(duration.Parameters.GetRequired<EnumParameterValue>("zone").Value);
+            if (target.Zone != requiredZone)
+            {
+                throw new InvalidOperationException(
+                    $"WHILE_IN_ZONE modifier requires target '{target.RuntimeId}' to currently be in '{requiredZone}'.");
+            }
+
+            return new StatModifierDurationState(
+                duration.TypeId,
+                state.TurnNumber,
+                requiredTargetZone: requiredZone,
+                targetResidencyEpoch: target.ZoneResidencyEpoch);
+        }
+
+        throw new InvalidOperationException($"Unsupported modifier duration primitive '{duration.TypeId}'.");
     }
 
     private StateTransitionResult ApplyStateBasedDeaths(StateTransitionResult transition)
@@ -386,7 +444,8 @@ public sealed class StateTransitionEngine
             target.Keywords,
             stats,
             resources,
-            currentHealth);
+            currentHealth,
+            target.ZoneResidencyEpoch + (zone == target.Zone ? 0 : 1));
 
     private static StableId RequireReference(StableId? referenceId, string kind) =>
         referenceId is { } concreteId
@@ -402,5 +461,15 @@ public sealed class StateTransitionEngine
             "MINIMUM" => StatModifierOperation.Minimum,
             "MAXIMUM" => StatModifierOperation.Maximum,
             _ => throw new InvalidOperationException($"Unsupported stat modifier operation '{operation ?? "<null>"}'.")
+        };
+
+    private static TargetZone ParseZone(string value) =>
+        value switch
+        {
+            "BOARD" => TargetZone.Board,
+            "HAND" => TargetZone.Hand,
+            "DECK" => TargetZone.Deck,
+            "GRAVEYARD" => TargetZone.Graveyard,
+            _ => throw new InvalidOperationException($"Unsupported duration zone '{value}'.")
         };
 }
