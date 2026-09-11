@@ -6,6 +6,7 @@
  */
 using HyuHeroes.Gameplay.Abilities;
 using HyuHeroes.Gameplay.Authoring;
+using HyuHeroes.Gameplay.Conditions;
 using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Effects;
 using HyuHeroes.Gameplay.Events;
