@@ -1,8 +1,8 @@
 /**
  * GAMEPLAY_RUNTIME_MODELS
  * Purpose: Defines immutable runtime targets and evaluation context consumed by deterministic gameplay resolvers.
- * Connections: Shared by TargetResolver, condition predicate handlers, formula runtime context, and future effect handlers.
- * Risk: High because runtime identity, ownership, lane placement, and stat visibility drive authoritative evaluations.
+ * Connections: Shared by TargetResolver, condition predicate handlers, formula runtime context, effect handlers, and lifecycle transitions.
+ * Risk: High because runtime identity, ownership, zone residency, lane placement, and stat visibility drive authoritative evaluations.
  */
 using System;
 using System.Collections.Generic;
@@ -44,7 +44,8 @@ public sealed class RuntimeTarget
         IEnumerable<StableId>? keywords = null,
         IEnumerable<KeyValuePair<StableId, decimal>>? stats = null,
         IEnumerable<KeyValuePair<StableId, decimal>>? resources = null,
-        decimal? currentHealth = null)
+        decimal? currentHealth = null,
+        long zoneResidencyEpoch = 1)
     {
         if (runtimeId == default)
         {
@@ -76,6 +77,11 @@ public sealed class RuntimeTarget
             throw new ArgumentException("Lane targets require a lane index.", nameof(laneIndex));
         }
 
+        if (zoneResidencyEpoch <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(zoneResidencyEpoch), "Zone residency epoch must be positive.");
+        }
+
         RuntimeId = runtimeId;
         Kind = kind;
         OwnerId = ownerId;
@@ -87,6 +93,7 @@ public sealed class RuntimeTarget
         _stats = CopyValues(stats, nameof(stats));
         _resources = CopyValues(resources, nameof(resources));
         CurrentHealth = currentHealth;
+        ZoneResidencyEpoch = zoneResidencyEpoch;
     }
 
     public StableId RuntimeId { get; }
@@ -98,6 +105,7 @@ public sealed class RuntimeTarget
     public IReadOnlyList<StableId> Tags { get; }
     public IReadOnlyList<StableId> Keywords { get; }
     public decimal? CurrentHealth { get; }
+    public long ZoneResidencyEpoch { get; }
     public IReadOnlyDictionary<StableId, decimal> Stats => _stats;
     public IReadOnlyDictionary<StableId, decimal> Resources => _resources;
 

@@ -44,6 +44,7 @@ internal sealed class PrimitiveGraphValidator
         }
 
         ValidateParameterBag(registration.Descriptor, effect.Parameters, path, errors);
+        ValidateModifierDurationParameters(effect, path, errors);
         ValidateNestedEffects(effect.Parameters, path, depth, errors);
     }
 
@@ -214,6 +215,49 @@ internal sealed class PrimitiveGraphValidator
             case ConditionParameterValue conditionValue:
                 ValidateCondition(conditionValue.Value, path, 1, errors);
                 return;
+        }
+    }
+
+    private void ValidateModifierDurationParameters(EffectDefinition effect, string path, ValidationCollector errors)
+    {
+        if (effect.TypeId != EffectIds.ModifyStat ||
+            !effect.Parameters.TryGet("durationId", out var durationValue) ||
+            durationValue is not StableIdParameterValue durationIdValue)
+        {
+            return;
+        }
+
+        var durationId = durationIdValue.Value;
+        var hasTurns = effect.Parameters.TryGet("durationTurns", out _);
+        var hasZone = effect.Parameters.TryGet("durationZone", out _);
+        if (durationId == DurationIds.ForNTurns && !hasTurns)
+        {
+            errors.Add(
+                "effect.duration_parameter_required",
+                $"{path}.parameters.durationTurns",
+                "duration.for_n_turns requires durationTurns.");
+        }
+        else if (durationId != DurationIds.ForNTurns && hasTurns)
+        {
+            errors.Add(
+                "effect.duration_parameter_invalid",
+                $"{path}.parameters.durationTurns",
+                "durationTurns is only valid with duration.for_n_turns.");
+        }
+
+        if (durationId == DurationIds.WhileInZone && !hasZone)
+        {
+            errors.Add(
+                "effect.duration_parameter_required",
+                $"{path}.parameters.durationZone",
+                "duration.while_in_zone requires durationZone.");
+        }
+        else if (durationId != DurationIds.WhileInZone && hasZone)
+        {
+            errors.Add(
+                "effect.duration_parameter_invalid",
+                $"{path}.parameters.durationZone",
+                "durationZone is only valid with duration.while_in_zone.");
         }
     }
 

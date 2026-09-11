@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using HyuHeroes.Gameplay.Conditions;
 using HyuHeroes.Gameplay.Core;
@@ -197,7 +198,7 @@ public sealed class ParameterBag
 
     public IReadOnlyDictionary<string, ParameterValue> Values => _values;
 
-    public bool TryGet(string name, out ParameterValue? value) => _values.TryGetValue(name, out value);
+    public bool TryGet(string name, [NotNullWhen(true)] out ParameterValue? value) => _values.TryGetValue(name, out value);
 
     public T GetRequired<T>(string name) where T : ParameterValue
     {

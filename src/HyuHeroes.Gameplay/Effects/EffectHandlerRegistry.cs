@@ -1,7 +1,7 @@
 /**
  * EFFECT_HANDLER_REGISTRY
  * Purpose: Converts validated declarative effects into deterministic resolved operations without mutating authoritative match state.
- * Connections: Uses GameplayRuntimeEvaluator for selectors, conditions, formulas, and feeds reducers, damage resolution, event queues, and choice continuation.
+ * Connections: Uses GameplayRuntimeEvaluator for selectors, conditions, formulas, and feeds reducers, damage resolution, duration lifecycle, event queues, and choice continuation.
  * Risk: High because effect planning defines the executable boundary between authoring data and authoritative state-transition logic.
  */
 using System;
@@ -10,7 +10,9 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using HyuHeroes.Gameplay.Authoring;
 using HyuHeroes.Gameplay.Core;
+using HyuHeroes.Gameplay.Registries;
 using HyuHeroes.Gameplay.Runtime;
+using HyuHeroes.Gameplay.Schema;
 using HyuHeroes.Gameplay.Selectors;
 
 namespace HyuHeroes.Gameplay.Effects;
@@ -35,7 +37,8 @@ public sealed class ResolvedEffectOperation
         decimal amount,
         StableId? primaryReferenceId = null,
         StableId? secondaryReferenceId = null,
-        string? qualifier = null)
+        string? qualifier = null,
+        DurationSpec? duration = null)
     {
         if (!Enum.IsDefined(typeof(ResolvedEffectOperationKind), kind))
         {
@@ -49,6 +52,11 @@ public sealed class ResolvedEffectOperation
 
         ValidateOptionalId(primaryReferenceId, nameof(primaryReferenceId));
         ValidateOptionalId(secondaryReferenceId, nameof(secondaryReferenceId));
+        if (duration is not null && secondaryReferenceId is { } durationReference && durationReference != duration.TypeId)
+        {
+            throw new ArgumentException("Resolved duration reference and duration spec must use the same type ID.", nameof(duration));
+        }
+
         Kind = kind;
         EffectId = effectId;
         SourceId = sourceId;
@@ -57,6 +65,7 @@ public sealed class ResolvedEffectOperation
         PrimaryReferenceId = primaryReferenceId;
         SecondaryReferenceId = secondaryReferenceId;
         Qualifier = qualifier;
+        Duration = duration;
     }
 
     public ResolvedEffectOperationKind Kind { get; }
@@ -67,6 +76,7 @@ public sealed class ResolvedEffectOperation
     public StableId? PrimaryReferenceId { get; }
     public StableId? SecondaryReferenceId { get; }
     public string? Qualifier { get; }
+    public DurationSpec? Duration { get; }
 
     private static void ValidateOptionalId(StableId? value, string parameterName)
     {
@@ -323,7 +333,7 @@ public static class DefaultEffectHandlerRegistry
         }
 
         var statId = effect.Parameters.GetRequired<StableIdParameterValue>("statId").Value;
-        var durationId = effect.Parameters.GetRequired<StableIdParameterValue>("durationId").Value;
+        var duration = BuildDuration(effect);
         var operation = effect.Parameters.GetRequired<EnumParameterValue>("operation").Value;
         var formula = effect.Parameters.GetRequired<FormulaParameterValue>("value").Value;
         var operations = resolution.SelectedTargets.Select(target =>
@@ -334,9 +344,47 @@ public static class DefaultEffectHandlerRegistry
                 target.RuntimeId,
                 context.Evaluator.EvaluateFormula(formula, context.Runtime.WithActiveTarget(target.RuntimeId)),
                 statId,
-                durationId,
-                operation));
+                duration.TypeId,
+                operation,
+                duration));
         return new EffectExecutionResult(operations);
+    }
+
+    private static DurationSpec BuildDuration(EffectDefinition effect)
+    {
+        var durationId = effect.Parameters.GetRequired<StableIdParameterValue>("durationId").Value;
+        var parameters = new List<KeyValuePair<string, ParameterValue>>();
+        if (effect.Parameters.TryGet("durationTurns", out var turnsValue))
+        {
+            if (durationId != DurationIds.ForNTurns)
+            {
+                throw new InvalidOperationException("durationTurns is only valid with duration.for_n_turns.");
+            }
+
+            parameters.Add(new KeyValuePair<string, ParameterValue>("turns", turnsValue));
+        }
+
+        if (effect.Parameters.TryGet("durationZone", out var zoneValue))
+        {
+            if (durationId != DurationIds.WhileInZone)
+            {
+                throw new InvalidOperationException("durationZone is only valid with duration.while_in_zone.");
+            }
+
+            parameters.Add(new KeyValuePair<string, ParameterValue>("zone", zoneValue));
+        }
+
+        if (durationId == DurationIds.ForNTurns && parameters.All(pair => pair.Key != "turns"))
+        {
+            throw new InvalidOperationException("duration.for_n_turns requires durationTurns.");
+        }
+
+        if (durationId == DurationIds.WhileInZone && parameters.All(pair => pair.Key != "zone"))
+        {
+            throw new InvalidOperationException("duration.while_in_zone requires durationZone.");
+        }
+
+        return new DurationSpec(durationId, new ParameterBag(parameters));
     }
 
     private static EffectExecutionResult ResolveSetStat(EffectDefinition effect, EffectExecutionContext context)
