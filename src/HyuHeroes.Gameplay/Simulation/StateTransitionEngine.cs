@@ -1,7 +1,7 @@
 /**
  * STATE_TRANSITION_ENGINE
  * Purpose: Applies resolved effect operations to immutable match snapshots and emits ordered domain events plus state-based death transitions.
- * Connections: Consumes EffectHandlerRegistry operations and DamagePipeline results, persists ability usage, then feeds trigger/replay/presentation adapters.
+ * Connections: Consumes EffectHandlerRegistry operations and DamagePipeline results, persists ability usage and deterministic RNG state, then feeds trigger/replay/presentation adapters.
  * Risk: High because this is the authoritative mutation boundary and therefore owns narrow, deterministic state changes.
  */
 using System;
@@ -31,7 +31,8 @@ public sealed class MatchStateSnapshot
         IEnumerable<DamageAdjustment>? damageAdjustments = null,
         IEnumerable<DamagePrevention>? damagePreventions = null,
         long nextEventSequence = 1,
-        IEnumerable<AbilityUsageRecord>? abilityUsage = null)
+        IEnumerable<AbilityUsageRecord>? abilityUsage = null,
+        ulong randomState = 0UL)
     {
         if (turnNumber <= 0) throw new ArgumentOutOfRangeException(nameof(turnNumber), "Turn number must be positive.");
         if (phaseId == default) throw new ArgumentException("Phase ID must be a non-default StableId.", nameof(phaseId));
@@ -47,6 +48,7 @@ public sealed class MatchStateSnapshot
         PhaseId = phaseId;
         LaneCount = laneCount;
         NextEventSequence = nextEventSequence;
+        RandomState = randomState;
     }
 
     public IReadOnlyList<RuntimeTarget> Targets { get; }
@@ -58,6 +60,7 @@ public sealed class MatchStateSnapshot
     public StableId PhaseId { get; }
     public int LaneCount { get; }
     public long NextEventSequence { get; }
+    public ulong RandomState { get; }
 
     public RuntimeTarget GetRequiredTarget(StableId runtimeId) =>
         Targets.FirstOrDefault(target => target.RuntimeId == runtimeId)
@@ -68,7 +71,8 @@ public sealed class MatchStateSnapshot
         IEnumerable<StatModifier>? statModifiers = null,
         IEnumerable<DamagePrevention>? damagePreventions = null,
         long? nextEventSequence = null,
-        IEnumerable<AbilityUsageRecord>? abilityUsage = null) =>
+        IEnumerable<AbilityUsageRecord>? abilityUsage = null,
+        ulong? randomState = null) =>
         new(
             targets ?? Targets,
             TurnNumber,
@@ -78,7 +82,8 @@ public sealed class MatchStateSnapshot
             DamageAdjustments,
             damagePreventions ?? DamagePreventions,
             nextEventSequence ?? NextEventSequence,
-            abilityUsage ?? AbilityUsage);
+            abilityUsage ?? AbilityUsage,
+            randomState ?? RandomState);
 
     private static IReadOnlyList<AbilityUsageRecord> CopyUsage(IEnumerable<AbilityUsageRecord>? values)
     {
