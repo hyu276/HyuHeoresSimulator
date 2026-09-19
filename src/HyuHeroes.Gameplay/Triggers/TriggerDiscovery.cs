@@ -19,6 +19,8 @@ public sealed class TriggerDiscovery
     private const int DamageDealtWindowOrder = 0;
     private const int DamagedWindowOrder = 1;
     private const int DeathWindowOrder = 0;
+    private const int DrawWindowOrder = 0;
+    private const int SummonWindowOrder = 0;
     private readonly IReadOnlyList<TriggerBinding> _bindings;
 
     public TriggerDiscovery(IEnumerable<TriggerBinding> bindings)
@@ -52,6 +54,8 @@ public sealed class TriggerDiscovery
         return domainEvent switch
         {
             DamageAppliedDomainEvent damage => DiscoverDamage(damage),
+            CardDrawnDomainEvent draw => DiscoverDraw(draw),
+            EntitySummonedDomainEvent summon => DiscoverSummon(summon),
             EntityDiedDomainEvent death => DiscoverDeath(death),
             _ => Array.Empty<TriggerQueueItem>()
         };
@@ -90,6 +94,28 @@ public sealed class TriggerDiscovery
         }
 
         return new ReadOnlyCollection<TriggerQueueItem>(items);
+    }
+
+    private IReadOnlyList<TriggerQueueItem> DiscoverDraw(CardDrawnDomainEvent draw)
+    {
+        if (draw.TargetId is not { } cardId)
+        {
+            return Array.Empty<TriggerQueueItem>();
+        }
+
+        return new ReadOnlyCollection<TriggerQueueItem>(
+            CreateItems(draw, DrawWindowOrder, TriggerIds.OnCardDrawn, cardId).ToArray());
+    }
+
+    private IReadOnlyList<TriggerQueueItem> DiscoverSummon(EntitySummonedDomainEvent summon)
+    {
+        if (summon.TargetId is not { } entityId)
+        {
+            return Array.Empty<TriggerQueueItem>();
+        }
+
+        return new ReadOnlyCollection<TriggerQueueItem>(
+            CreateItems(summon, SummonWindowOrder, TriggerIds.OnSummoned, entityId).ToArray());
     }
 
     private IReadOnlyList<TriggerQueueItem> DiscoverDeath(EntityDiedDomainEvent death) =>
