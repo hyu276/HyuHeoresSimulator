@@ -19,6 +19,11 @@ public static class DomainEventTypeIds
     public static readonly StableId StatSet = StableId.Parse("event.stat_set");
     public static readonly StableId ModifierAdded = StableId.Parse("event.modifier_added");
     public static readonly StableId ModifierExpired = StableId.Parse("event.modifier_expired");
+    public static readonly StableId CardDrawn = StableId.Parse("event.card_drawn");
+    public static readonly StableId CardDiscarded = StableId.Parse("event.card_discarded");
+    public static readonly StableId EntitySummoned = StableId.Parse("event.entity_summoned");
+    public static readonly StableId EntityMoved = StableId.Parse("event.entity_moved");
+    public static readonly StableId EntityTransformed = StableId.Parse("event.entity_transformed");
     public static readonly StableId EntityDied = StableId.Parse("event.entity_died");
     public static readonly StableId ZoneChanged = StableId.Parse("event.zone_changed");
     public static readonly StableId TimingAdvanced = StableId.Parse("event.timing_advanced");
@@ -183,6 +188,149 @@ public sealed class ModifierExpiredDomainEvent : DomainEvent
     public StableId ModifierInstanceId { get; }
     public StableId DurationId { get; }
     public string Reason { get; }
+}
+
+public sealed class CardDrawnDomainEvent : DomainEvent
+{
+    public CardDrawnDomainEvent(
+        long sequence,
+        StableId playerId,
+        StableId cardId,
+        int deckCountAfter,
+        int handCountAfter)
+        : base(sequence, DomainEventTypeIds.CardDrawn, playerId, cardId)
+    {
+        if (deckCountAfter < 0 || handCountAfter < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(deckCountAfter), "Zone counts cannot be negative.");
+        }
+
+        DeckCountAfter = deckCountAfter;
+        HandCountAfter = handCountAfter;
+    }
+
+    public int DeckCountAfter { get; }
+    public int HandCountAfter { get; }
+}
+
+public sealed class CardDiscardedDomainEvent : DomainEvent
+{
+    public CardDiscardedDomainEvent(
+        long sequence,
+        StableId sourceId,
+        StableId cardId,
+        StableId ownerId,
+        int handCountAfter,
+        int graveyardCountAfter)
+        : base(sequence, DomainEventTypeIds.CardDiscarded, sourceId, cardId)
+    {
+        OwnerId = ownerId == default
+            ? throw new ArgumentException("Discard owner ID must be a non-default StableId.", nameof(ownerId))
+            : ownerId;
+        if (handCountAfter < 0 || graveyardCountAfter < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(handCountAfter), "Zone counts cannot be negative.");
+        }
+
+        HandCountAfter = handCountAfter;
+        GraveyardCountAfter = graveyardCountAfter;
+    }
+
+    public StableId OwnerId { get; }
+    public int HandCountAfter { get; }
+    public int GraveyardCountAfter { get; }
+}
+
+public sealed class EntitySummonedDomainEvent : DomainEvent
+{
+    public EntitySummonedDomainEvent(
+        long sequence,
+        StableId sourceId,
+        StableId entityId,
+        StableId cardDefinitionId,
+        int laneIndex)
+        : base(sequence, DomainEventTypeIds.EntitySummoned, sourceId, entityId)
+    {
+        CardDefinitionId = cardDefinitionId == default
+            ? throw new ArgumentException("Summoned definition ID must be a non-default StableId.", nameof(cardDefinitionId))
+            : cardDefinitionId;
+        if (laneIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(laneIndex), "Summoned lane index cannot be negative.");
+        }
+
+        LaneIndex = laneIndex;
+    }
+
+    public StableId CardDefinitionId { get; }
+    public int LaneIndex { get; }
+}
+
+public sealed class EntityMovedDomainEvent : DomainEvent
+{
+    public EntityMovedDomainEvent(
+        long sequence,
+        StableId sourceId,
+        StableId entityId,
+        TargetZone previousZone,
+        TargetZone currentZone,
+        int? previousLaneIndex,
+        int? currentLaneIndex,
+        long residencyEpoch)
+        : base(sequence, DomainEventTypeIds.EntityMoved, sourceId, entityId)
+    {
+        if (!Enum.IsDefined(typeof(TargetZone), previousZone) || !Enum.IsDefined(typeof(TargetZone), currentZone))
+        {
+            throw new ArgumentOutOfRangeException(nameof(currentZone), "Move event contains an undefined zone.");
+        }
+
+        if (previousLaneIndex is < 0 || currentLaneIndex is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(currentLaneIndex), "Lane indexes cannot be negative.");
+        }
+
+        if (residencyEpoch <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(residencyEpoch), "Zone residency epoch must be positive.");
+        }
+
+        PreviousZone = previousZone;
+        CurrentZone = currentZone;
+        PreviousLaneIndex = previousLaneIndex;
+        CurrentLaneIndex = currentLaneIndex;
+        ResidencyEpoch = residencyEpoch;
+    }
+
+    public TargetZone PreviousZone { get; }
+    public TargetZone CurrentZone { get; }
+    public int? PreviousLaneIndex { get; }
+    public int? CurrentLaneIndex { get; }
+    public long ResidencyEpoch { get; }
+}
+
+public sealed class EntityTransformedDomainEvent : DomainEvent
+{
+    public EntityTransformedDomainEvent(
+        long sequence,
+        StableId sourceId,
+        StableId entityId,
+        StableId? previousDefinitionId,
+        StableId currentDefinitionId)
+        : base(sequence, DomainEventTypeIds.EntityTransformed, sourceId, entityId)
+    {
+        if (previousDefinitionId is { } previousId && previousId == default)
+        {
+            throw new ArgumentException("Previous definition ID must be null or a non-default StableId.", nameof(previousDefinitionId));
+        }
+
+        CurrentDefinitionId = currentDefinitionId == default
+            ? throw new ArgumentException("Current definition ID must be a non-default StableId.", nameof(currentDefinitionId))
+            : currentDefinitionId;
+        PreviousDefinitionId = previousDefinitionId;
+    }
+
+    public StableId? PreviousDefinitionId { get; }
+    public StableId CurrentDefinitionId { get; }
 }
 
 public sealed class EntityDiedDomainEvent : DomainEvent
