@@ -22,6 +22,11 @@ public enum ResolvedEffectOperationKind
     DamageRequest,
     Heal,
     Draw,
+    Discard,
+    Summon,
+    Destroy,
+    Move,
+    Transform,
     AddStatModifier,
     SetStat,
     ChangeResource
@@ -38,7 +43,9 @@ public sealed class ResolvedEffectOperation
         StableId? primaryReferenceId = null,
         StableId? secondaryReferenceId = null,
         string? qualifier = null,
-        DurationSpec? duration = null)
+        DurationSpec? duration = null,
+        StableId? destinationId = null,
+        TargetZone? destinationZone = null)
     {
         if (!Enum.IsDefined(typeof(ResolvedEffectOperationKind), kind))
         {
@@ -52,6 +59,12 @@ public sealed class ResolvedEffectOperation
 
         ValidateOptionalId(primaryReferenceId, nameof(primaryReferenceId));
         ValidateOptionalId(secondaryReferenceId, nameof(secondaryReferenceId));
+        ValidateOptionalId(destinationId, nameof(destinationId));
+        if (destinationZone is { } concreteDestinationZone &&
+            (!Enum.IsDefined(typeof(TargetZone), concreteDestinationZone) || concreteDestinationZone == TargetZone.Any))
+        {
+            throw new ArgumentOutOfRangeException(nameof(destinationZone), destinationZone, "Destination zone must be null or a concrete TargetZone.");
+        }
         if (duration is not null && secondaryReferenceId is { } durationReference && durationReference != duration.TypeId)
         {
             throw new ArgumentException("Resolved duration reference and duration spec must use the same type ID.", nameof(duration));
@@ -66,6 +79,8 @@ public sealed class ResolvedEffectOperation
         SecondaryReferenceId = secondaryReferenceId;
         Qualifier = qualifier;
         Duration = duration;
+        DestinationId = destinationId;
+        DestinationZone = destinationZone;
     }
 
     public ResolvedEffectOperationKind Kind { get; }
@@ -77,6 +92,8 @@ public sealed class ResolvedEffectOperation
     public StableId? SecondaryReferenceId { get; }
     public string? Qualifier { get; }
     public DurationSpec? Duration { get; }
+    public StableId? DestinationId { get; }
+    public TargetZone? DestinationZone { get; }
 
     private static void ValidateOptionalId(StableId? value, string parameterName)
     {
@@ -286,6 +303,11 @@ public static class DefaultEffectHandlerRegistry
             Registration(EffectIds.Damage, (effect, context) => ResolveNumericTarget(effect, context, ResolvedEffectOperationKind.DamageRequest, "damageType")),
             Registration(EffectIds.Heal, (effect, context) => ResolveNumericTarget(effect, context, ResolvedEffectOperationKind.Heal)),
             Registration(EffectIds.Draw, (effect, context) => ResolveNumericTarget(effect, context, ResolvedEffectOperationKind.Draw)),
+            Registration(EffectIds.Discard, (effect, context) => ResolveSimpleTargetOperation(effect, context, ResolvedEffectOperationKind.Discard)),
+            Registration(EffectIds.Summon, ResolveSummon),
+            Registration(EffectIds.Destroy, (effect, context) => ResolveSimpleTargetOperation(effect, context, ResolvedEffectOperationKind.Destroy)),
+            Registration(EffectIds.Move, ResolveMove),
+            Registration(EffectIds.Transform, ResolveTransform),
             Registration(EffectIds.ModifyStat, ResolveModifyStat),
             Registration(EffectIds.SetStat, ResolveSetStat),
             Registration(EffectIds.ChangeResource, ResolveChangeResource),
@@ -323,6 +345,166 @@ public static class DefaultEffectHandlerRegistry
                 qualifier: qualifier));
         return new EffectExecutionResult(operations);
     }
+
+    private static EffectExecutionResult ResolveSimpleTargetOperation(
+        EffectDefinition effect,
+        EffectExecutionContext context,
+        ResolvedEffectOperationKind kind)
+    {
+        var resolution = ResolveTarget(effect, context, "target");
+        if (resolution.RequiresPlayerChoice)
+        {
+            return Pending(effect, "target", resolution);
+        }
+
+        return new EffectExecutionResult(
+            resolution.SelectedTargets.Select(target =>
+                new ResolvedEffectOperation(kind, effect.TypeId, context.Runtime.SourceId, target.RuntimeId, 0m)));
+    }
+
+    private static EffectExecutionResult ResolveSummon(EffectDefinition effect, EffectExecutionContext context)
+    {
+        var destination = ResolveTarget(effect, context, "destination");
+        if (destination.RequiresPlayerChoice)
+        {
+            return Pending(effect, "destination", destination);
+        }
+
+        var definitionId = effect.Parameters.GetRequired<StableIdParameterValue>("cardDefinitionId").Value;
+        var operations = destination.SelectedTargets.Select(lane =>
+        {
+            if (lane.Kind != RuntimeTargetKind.Lane || lane.LaneIndex is null)
+            {
+                throw new InvalidOperationException("SUMMON destination must resolve to lane targets.");
+            }
+
+            return new ResolvedEffectOperation(
+                ResolvedEffectOperationKind.Summon,
+                effect.TypeId,
+                context.Runtime.SourceId,
+                lane.RuntimeId,
+                0m,
+                primaryReferenceId: definitionId);
+        });
+        return new EffectExecutionResult(operations);
+    }
+
+    private static EffectExecutionResult ResolveMove(EffectDefinition effect, EffectExecutionContext context)
+    {
+        RejectAmbiguousMoveChoice(effect);
+        var target = ResolveTarget(effect, context, "target");
+        if (target.RequiresPlayerChoice)
+        {
+            return Pending(effect, "target", target);
+        }
+
+        if (target.SelectedTargets.Count == 0)
+        {
+            return new EffectExecutionResult();
+        }
+
+        if (target.SelectedTargets.Count != 1)
+        {
+            throw new InvalidOperationException("MOVE currently requires exactly one selected target.");
+        }
+
+        var destinationZone = ParseTargetZone(
+            effect.Parameters.GetRequired<EnumParameterValue>("destinationZone").Value);
+        StableId? destinationId = null;
+        if (destinationZone == TargetZone.Board)
+        {
+            if (!effect.Parameters.TryGet("destination", out var destinationValue) ||
+                destinationValue is not SelectorParameterValue)
+            {
+                throw new InvalidOperationException("MOVE to BOARD requires a destination selector.");
+            }
+
+            var destination = ResolveTarget(effect, context, "destination");
+            if (destination.RequiresPlayerChoice)
+            {
+                return Pending(effect, "destination", destination);
+            }
+
+            if (destination.SelectedTargets.Count != 1 ||
+                destination.SelectedTargets[0].Kind != RuntimeTargetKind.Lane)
+            {
+                throw new InvalidOperationException("MOVE to BOARD requires exactly one lane destination.");
+            }
+
+            destinationId = destination.SelectedTargets[0].RuntimeId;
+        }
+        else if (effect.Parameters.TryGet("destination", out _))
+        {
+            throw new InvalidOperationException("Non-board MOVE must not provide a destination selector.");
+        }
+
+        var placement = effect.Parameters.TryGet("destinationPlacement", out var placementValue)
+            ? ((EnumParameterValue)placementValue).Value
+            : "BOTTOM";
+        if (destinationZone != TargetZone.Deck && placement != "BOTTOM")
+        {
+            throw new InvalidOperationException("destinationPlacement is only meaningful when moving to DECK.");
+        }
+
+        return new EffectExecutionResult(new[]
+        {
+            new ResolvedEffectOperation(
+                ResolvedEffectOperationKind.Move,
+                effect.TypeId,
+                context.Runtime.SourceId,
+                target.SelectedTargets[0].RuntimeId,
+                0m,
+                qualifier: placement,
+                destinationId: destinationId,
+                destinationZone: destinationZone)
+        });
+    }
+
+    private static EffectExecutionResult ResolveTransform(EffectDefinition effect, EffectExecutionContext context)
+    {
+        var resolution = ResolveTarget(effect, context, "target");
+        if (resolution.RequiresPlayerChoice)
+        {
+            return Pending(effect, "target", resolution);
+        }
+
+        var definitionId = effect.Parameters.GetRequired<StableIdParameterValue>("cardDefinitionId").Value;
+        return new EffectExecutionResult(
+            resolution.SelectedTargets.Select(target =>
+                new ResolvedEffectOperation(
+                    ResolvedEffectOperationKind.Transform,
+                    effect.TypeId,
+                    context.Runtime.SourceId,
+                    target.RuntimeId,
+                    0m,
+                    primaryReferenceId: definitionId)));
+    }
+
+    private static void RejectAmbiguousMoveChoice(EffectDefinition effect)
+    {
+        var target = effect.Parameters.GetRequired<SelectorParameterValue>("target").Value;
+        if (!effect.Parameters.TryGet("destination", out var destinationValue) ||
+            destinationValue is not SelectorParameterValue destination)
+        {
+            return;
+        }
+
+        if (target.Selection == TargetSelection.PlayerChoice &&
+            destination.Value.Selection == TargetSelection.PlayerChoice)
+        {
+            throw new InvalidOperationException("MOVE cannot require PLAYER_CHOICE for both target and destination in one effect.");
+        }
+    }
+
+    private static TargetZone ParseTargetZone(string value) =>
+        value switch
+        {
+            "BOARD" => TargetZone.Board,
+            "HAND" => TargetZone.Hand,
+            "DECK" => TargetZone.Deck,
+            "GRAVEYARD" => TargetZone.Graveyard,
+            _ => throw new InvalidOperationException($"Unsupported destination zone '{value}'.")
+        };
 
     private static EffectExecutionResult ResolveModifyStat(EffectDefinition effect, EffectExecutionContext context)
     {
@@ -454,7 +636,7 @@ public static class DefaultEffectHandlerRegistry
         var resolution = context.Evaluator.ResolveTargets(
             effect.Parameters.GetRequired<SelectorParameterValue>(parameterName).Value,
             context.Runtime);
-        return context.ChoiceOverride is null
+        return context.ChoiceOverride is null || context.ChoiceOverride.ParameterName != parameterName
             ? resolution
             : ApplyChoiceOverride(resolution, context.ChoiceOverride, parameterName, context.Runtime);
     }
