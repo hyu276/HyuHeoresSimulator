@@ -19,6 +19,7 @@ namespace HyuHeroes.Gameplay.Simulation;
 
 public sealed class LifecycleTransitionEngine
 {
+    private static readonly StableId MaxHealthStatId = StableId.Parse("stat.max_health");
     private const string EndOfTurnReason = "end_of_turn";
     private const string StartOfTurnReason = "start_of_turn";
     private const string SourceResidencyReason = "source_residency_changed";
@@ -87,6 +88,11 @@ public sealed class LifecycleTransitionEngine
 
         ValidateDestination(state, target, destinationZone, destinationLaneIndex);
         var replacement = CloneInZone(target, destinationZone, destinationLaneIndex);
+        var playerZones = OrderedZoneStateRules.Move(
+            state.PlayerZones,
+            target,
+            destinationZone,
+            OrderedZoneInsertPosition.Bottom);
         var zoneEvent = new ZoneChangedDomainEvent(
             state.NextEventSequence,
             target.RuntimeId,
@@ -95,6 +101,7 @@ public sealed class LifecycleTransitionEngine
             replacement.ZoneResidencyEpoch);
         var updatedState = state.With(
             targets: ReplaceTarget(state.Targets, replacement),
+            playerZones: playerZones,
             nextEventSequence: state.NextEventSequence + 1);
         return ReconcileContinuousDurations(updatedState, new DomainEvent[] { zoneEvent });
     }
@@ -220,25 +227,50 @@ public sealed class LifecycleTransitionEngine
         }
 
         if (destinationZone == TargetZone.Board &&
-            (target.Kind == RuntimeTargetKind.Unit || target.Kind == RuntimeTargetKind.Hero) &&
+            (target.Kind == RuntimeTargetKind.Unit || target.Kind == RuntimeTargetKind.Hero || target.CardType == CardType.Unit) &&
             destinationLaneIndex is null)
         {
-            throw new ArgumentException("Units and heroes entering the board require a lane index.", nameof(destinationLaneIndex));
+            throw new ArgumentException("Board units entering the board require a lane index.", nameof(destinationLaneIndex));
         }
 
         if (destinationLaneIndex is < 0 || destinationLaneIndex >= state.LaneCount)
         {
             throw new ArgumentOutOfRangeException(nameof(destinationLaneIndex), "Destination lane is outside the board.");
         }
+
+        if (destinationZone == TargetZone.Board &&
+            destinationLaneIndex is { } lane &&
+            target.OwnerId is { } ownerId &&
+            state.Targets.Any(existing =>
+                existing.RuntimeId != target.RuntimeId &&
+                existing.OwnerId == ownerId &&
+                existing.Zone == TargetZone.Board &&
+                existing.LaneIndex == lane &&
+                (existing.Kind == RuntimeTargetKind.Unit || existing.Kind == RuntimeTargetKind.Hero)))
+        {
+            throw new InvalidOperationException($"Player '{ownerId}' already occupies lane {lane}.");
+        }
     }
 
     private static RuntimeTarget CloneInZone(
         RuntimeTarget target,
         TargetZone zone,
-        int? laneIndex) =>
-        new(
+        int? laneIndex)
+    {
+        var kind = zone == TargetZone.Board && target.CardType == CardType.Unit
+            ? RuntimeTargetKind.Unit
+            : zone != TargetZone.Board && target.CardType is not null
+                ? RuntimeTargetKind.Card
+                : target.Kind;
+        var health = target.CurrentHealth;
+        if (zone == TargetZone.Board && target.CardType == CardType.Unit && (health is null || health <= 0m))
+        {
+            health = target.GetRequiredStat(MaxHealthStatId);
+        }
+
+        return new RuntimeTarget(
             target.RuntimeId,
-            target.Kind,
+            kind,
             target.OwnerId,
             zone,
             laneIndex,
@@ -247,8 +279,10 @@ public sealed class LifecycleTransitionEngine
             target.Keywords,
             target.Stats,
             target.Resources,
-            target.CurrentHealth,
-            checked(target.ZoneResidencyEpoch + 1));
+            health,
+            checked(target.ZoneResidencyEpoch + 1),
+            target.CardDefinitionId);
+    }
 
     private static IReadOnlyList<RuntimeTarget> ReplaceTarget(
         IReadOnlyList<RuntimeTarget> targets,
