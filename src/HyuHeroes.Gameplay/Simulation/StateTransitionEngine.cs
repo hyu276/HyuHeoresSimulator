@@ -35,23 +35,28 @@ public sealed class MatchStateSnapshot
         IEnumerable<DamagePrevention>? damagePreventions = null,
         long nextEventSequence = 1,
         IEnumerable<AbilityUsageRecord>? abilityUsage = null,
-        ulong randomState = 0UL)
+        ulong randomState = 0UL,
+        IEnumerable<PlayerZoneState>? playerZones = null,
+        long nextEntitySequence = 1)
     {
         if (turnNumber <= 0) throw new ArgumentOutOfRangeException(nameof(turnNumber), "Turn number must be positive.");
         if (phaseId == default) throw new ArgumentException("Phase ID must be a non-default StableId.", nameof(phaseId));
         if (laneCount <= 0) throw new ArgumentOutOfRangeException(nameof(laneCount), "Lane count must be positive.");
         if (nextEventSequence <= 0) throw new ArgumentOutOfRangeException(nameof(nextEventSequence), "Next event sequence must be positive.");
+        if (nextEntitySequence <= 0) throw new ArgumentOutOfRangeException(nameof(nextEntitySequence), "Next entity sequence must be positive.");
 
         Targets = CopyUnique(targets, target => target.RuntimeId, nameof(targets));
         StatModifiers = CopyUnique(statModifiers, modifier => modifier.InstanceId, nameof(statModifiers));
         DamageAdjustments = CopyUnique(damageAdjustments, adjustment => adjustment.InstanceId, nameof(damageAdjustments));
         DamagePreventions = CopyUnique(damagePreventions, prevention => prevention.InstanceId, nameof(damagePreventions));
         AbilityUsage = CopyUsage(abilityUsage);
+        PlayerZones = OrderedZoneStateRules.CreateOrValidate(Targets, playerZones);
         TurnNumber = turnNumber;
         PhaseId = phaseId;
         LaneCount = laneCount;
         NextEventSequence = nextEventSequence;
         RandomState = randomState;
+        NextEntitySequence = nextEntitySequence;
     }
 
     public IReadOnlyList<RuntimeTarget> Targets { get; }
@@ -59,15 +64,21 @@ public sealed class MatchStateSnapshot
     public IReadOnlyList<DamageAdjustment> DamageAdjustments { get; }
     public IReadOnlyList<DamagePrevention> DamagePreventions { get; }
     public IReadOnlyList<AbilityUsageRecord> AbilityUsage { get; }
+    public IReadOnlyList<PlayerZoneState> PlayerZones { get; }
     public int TurnNumber { get; }
     public StableId PhaseId { get; }
     public int LaneCount { get; }
     public long NextEventSequence { get; }
     public ulong RandomState { get; }
+    public long NextEntitySequence { get; }
 
     public RuntimeTarget GetRequiredTarget(StableId runtimeId) =>
         Targets.FirstOrDefault(target => target.RuntimeId == runtimeId)
         ?? throw new KeyNotFoundException($"Unknown match-state target '{runtimeId}'.");
+
+    public PlayerZoneState GetRequiredPlayerZones(StableId playerId) =>
+        PlayerZones.FirstOrDefault(state => state.PlayerId == playerId)
+        ?? throw new KeyNotFoundException($"Unknown player zone state '{playerId}'.");
 
     public MatchStateSnapshot With(
         IEnumerable<RuntimeTarget>? targets = null,
@@ -77,7 +88,9 @@ public sealed class MatchStateSnapshot
         IEnumerable<AbilityUsageRecord>? abilityUsage = null,
         ulong? randomState = null,
         int? turnNumber = null,
-        StableId? phaseId = null) =>
+        StableId? phaseId = null,
+        IEnumerable<PlayerZoneState>? playerZones = null,
+        long? nextEntitySequence = null) =>
         new(
             targets ?? Targets,
             turnNumber ?? TurnNumber,
@@ -88,7 +101,9 @@ public sealed class MatchStateSnapshot
             damagePreventions ?? DamagePreventions,
             nextEventSequence ?? NextEventSequence,
             abilityUsage ?? AbilityUsage,
-            randomState ?? RandomState);
+            randomState ?? RandomState,
+            playerZones ?? PlayerZones,
+            nextEntitySequence ?? NextEntitySequence);
 
     private static IReadOnlyList<AbilityUsageRecord> CopyUsage(IEnumerable<AbilityUsageRecord>? values)
     {
