@@ -574,9 +574,13 @@ public sealed class StateTransitionEngine
             .ToArray();
         foreach (var target in lethalTargets)
         {
-            state = state.With(
-                targets: ReplaceTarget(state.Targets, CloneAsDead(target)),
-                nextEventSequence: state.NextEventSequence + 1);
+            state = MoveAcrossZones(
+                state,
+                target,
+                TargetZone.Graveyard,
+                null,
+                OrderedZoneInsertPosition.Bottom);
+            state = state.With(nextEventSequence: state.NextEventSequence + 1);
             events.Add(new EntityDiedDomainEvent(state.NextEventSequence - 1, target.RuntimeId));
         }
 
@@ -651,8 +655,70 @@ public sealed class StateTransitionEngine
         return Clone(target, target.Zone, target.LaneIndex, target.Stats, resources, target.CurrentHealth);
     }
 
-    private static RuntimeTarget CloneAsDead(RuntimeTarget target) =>
-        Clone(target, TargetZone.Graveyard, null, target.Stats, target.Resources, target.CurrentHealth);
+    private static MatchStateSnapshot MoveAcrossZones(
+        MatchStateSnapshot state,
+        RuntimeTarget target,
+        TargetZone destinationZone,
+        int? destinationLaneIndex,
+        OrderedZoneInsertPosition insertPosition)
+    {
+        if (target.Zone == destinationZone)
+        {
+            throw new InvalidOperationException("Cross-zone movement requires a different destination zone.");
+        }
+
+        if (destinationZone == TargetZone.Board)
+        {
+            if (target.OwnerId is not { } ownerId || destinationLaneIndex is not { } laneIndex)
+            {
+                throw new InvalidOperationException("Entering BOARD requires an owned card and destination lane.");
+            }
+
+            ValidateBoardDestination(state, ownerId, laneIndex, target.RuntimeId);
+        }
+        else if (destinationLaneIndex is not null)
+        {
+            throw new InvalidOperationException("Non-board zones cannot carry a lane index.");
+        }
+
+        var replacement = CloneForZone(target, destinationZone, destinationLaneIndex);
+        var zones = OrderedZoneStateRules.Move(state.PlayerZones, target, destinationZone, insertPosition);
+        return state.With(
+            targets: ReplaceTarget(state.Targets, replacement),
+            playerZones: zones);
+    }
+
+    private static RuntimeTarget CloneForZone(
+        RuntimeTarget target,
+        TargetZone zone,
+        int? laneIndex)
+    {
+        var kind = zone == TargetZone.Board && target.CardType == CardType.Unit
+            ? RuntimeTargetKind.Unit
+            : zone != TargetZone.Board && target.CardType is not null
+                ? RuntimeTargetKind.Card
+                : target.Kind;
+        var currentHealth = target.CurrentHealth;
+        if (zone == TargetZone.Board && target.CardType == CardType.Unit && (currentHealth is null || currentHealth <= 0m))
+        {
+            currentHealth = target.GetRequiredStat(MaxHealthStatId);
+        }
+
+        return new RuntimeTarget(
+            target.RuntimeId,
+            kind,
+            target.OwnerId,
+            zone,
+            laneIndex,
+            target.CardType,
+            target.Tags,
+            target.Keywords,
+            target.Stats,
+            target.Resources,
+            currentHealth,
+            checked(target.ZoneResidencyEpoch + 1),
+            target.CardDefinitionId);
+    }
 
     private static RuntimeTarget Clone(
         RuntimeTarget target,
@@ -673,7 +739,48 @@ public sealed class StateTransitionEngine
             stats,
             resources,
             currentHealth,
-            target.ZoneResidencyEpoch + (zone == target.Zone ? 0 : 1));
+            target.ZoneResidencyEpoch + (zone == target.Zone ? 0 : 1),
+            target.CardDefinitionId);
+
+    private static void ValidateBoardDestination(
+        MatchStateSnapshot state,
+        StableId ownerId,
+        int laneIndex,
+        StableId? movingEntityId)
+    {
+        if (laneIndex < 0 || laneIndex >= state.LaneCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(laneIndex), "Destination lane is outside the board.");
+        }
+
+        if (state.Targets.Any(target =>
+            target.RuntimeId != movingEntityId &&
+            target.OwnerId == ownerId &&
+            target.Zone == TargetZone.Board &&
+            target.LaneIndex == laneIndex &&
+            (target.Kind == RuntimeTargetKind.Unit || target.Kind == RuntimeTargetKind.Hero)))
+        {
+            throw new InvalidOperationException($"Player '{ownerId}' already occupies lane {laneIndex}.");
+        }
+    }
+
+    private static int RequireWholeCount(decimal value, string effectName)
+    {
+        if (value < 0m || decimal.Truncate(value) != value || value > int.MaxValue)
+        {
+            throw new InvalidOperationException($"{effectName} amount must be a non-negative whole number within Int32 range.");
+        }
+
+        return decimal.ToInt32(value);
+    }
+
+    private static OrderedZoneInsertPosition ParseInsertPosition(string? value) =>
+        value switch
+        {
+            null or "BOTTOM" => OrderedZoneInsertPosition.Bottom,
+            "TOP" => OrderedZoneInsertPosition.Top,
+            _ => throw new InvalidOperationException($"Unsupported ordered-zone placement '{value}'.")
+        };
 
     private static StableId RequireReference(StableId? referenceId, string kind) =>
         referenceId is { } concreteId
