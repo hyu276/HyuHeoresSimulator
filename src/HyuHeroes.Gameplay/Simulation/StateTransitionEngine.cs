@@ -35,23 +35,28 @@ public sealed class MatchStateSnapshot
         IEnumerable<DamagePrevention>? damagePreventions = null,
         long nextEventSequence = 1,
         IEnumerable<AbilityUsageRecord>? abilityUsage = null,
-        ulong randomState = 0UL)
+        ulong randomState = 0UL,
+        IEnumerable<PlayerZoneState>? playerZones = null,
+        long nextEntitySequence = 1)
     {
         if (turnNumber <= 0) throw new ArgumentOutOfRangeException(nameof(turnNumber), "Turn number must be positive.");
         if (phaseId == default) throw new ArgumentException("Phase ID must be a non-default StableId.", nameof(phaseId));
         if (laneCount <= 0) throw new ArgumentOutOfRangeException(nameof(laneCount), "Lane count must be positive.");
         if (nextEventSequence <= 0) throw new ArgumentOutOfRangeException(nameof(nextEventSequence), "Next event sequence must be positive.");
+        if (nextEntitySequence <= 0) throw new ArgumentOutOfRangeException(nameof(nextEntitySequence), "Next entity sequence must be positive.");
 
         Targets = CopyUnique(targets, target => target.RuntimeId, nameof(targets));
         StatModifiers = CopyUnique(statModifiers, modifier => modifier.InstanceId, nameof(statModifiers));
         DamageAdjustments = CopyUnique(damageAdjustments, adjustment => adjustment.InstanceId, nameof(damageAdjustments));
         DamagePreventions = CopyUnique(damagePreventions, prevention => prevention.InstanceId, nameof(damagePreventions));
         AbilityUsage = CopyUsage(abilityUsage);
+        PlayerZones = OrderedZoneStateRules.CreateOrValidate(Targets, playerZones);
         TurnNumber = turnNumber;
         PhaseId = phaseId;
         LaneCount = laneCount;
         NextEventSequence = nextEventSequence;
         RandomState = randomState;
+        NextEntitySequence = nextEntitySequence;
     }
 
     public IReadOnlyList<RuntimeTarget> Targets { get; }
@@ -59,15 +64,21 @@ public sealed class MatchStateSnapshot
     public IReadOnlyList<DamageAdjustment> DamageAdjustments { get; }
     public IReadOnlyList<DamagePrevention> DamagePreventions { get; }
     public IReadOnlyList<AbilityUsageRecord> AbilityUsage { get; }
+    public IReadOnlyList<PlayerZoneState> PlayerZones { get; }
     public int TurnNumber { get; }
     public StableId PhaseId { get; }
     public int LaneCount { get; }
     public long NextEventSequence { get; }
     public ulong RandomState { get; }
+    public long NextEntitySequence { get; }
 
     public RuntimeTarget GetRequiredTarget(StableId runtimeId) =>
         Targets.FirstOrDefault(target => target.RuntimeId == runtimeId)
         ?? throw new KeyNotFoundException($"Unknown match-state target '{runtimeId}'.");
+
+    public PlayerZoneState GetRequiredPlayerZones(StableId playerId) =>
+        PlayerZones.FirstOrDefault(state => state.PlayerId == playerId)
+        ?? throw new KeyNotFoundException($"Unknown player zone state '{playerId}'.");
 
     public MatchStateSnapshot With(
         IEnumerable<RuntimeTarget>? targets = null,
@@ -77,7 +88,9 @@ public sealed class MatchStateSnapshot
         IEnumerable<AbilityUsageRecord>? abilityUsage = null,
         ulong? randomState = null,
         int? turnNumber = null,
-        StableId? phaseId = null) =>
+        StableId? phaseId = null,
+        IEnumerable<PlayerZoneState>? playerZones = null,
+        long? nextEntitySequence = null) =>
         new(
             targets ?? Targets,
             turnNumber ?? TurnNumber,
@@ -88,7 +101,9 @@ public sealed class MatchStateSnapshot
             damagePreventions ?? DamagePreventions,
             nextEventSequence ?? NextEventSequence,
             abilityUsage ?? AbilityUsage,
-            randomState ?? RandomState);
+            randomState ?? RandomState,
+            playerZones ?? PlayerZones,
+            nextEntitySequence ?? NextEntitySequence);
 
     private static IReadOnlyList<AbilityUsageRecord> CopyUsage(IEnumerable<AbilityUsageRecord>? values)
     {
@@ -144,17 +159,24 @@ public sealed class StateTransitionEngine
 {
     private static readonly StableId MaxHealthStatId = StableId.Parse("stat.max_health");
     private readonly IReadOnlyDictionary<ResolvedEffectOperationKind, Func<MatchStateSnapshot, ResolvedEffectOperation, StateTransitionResult>> _handlers;
+    private readonly CardRuntimeCatalog? _cardCatalog;
 
-    public StateTransitionEngine()
+    public StateTransitionEngine(CardRuntimeCatalog? cardCatalog = null)
     {
+        _cardCatalog = cardCatalog;
         _handlers = new Dictionary<ResolvedEffectOperationKind, Func<MatchStateSnapshot, ResolvedEffectOperation, StateTransitionResult>>
         {
             [ResolvedEffectOperationKind.DamageRequest] = ApplyDamage,
             [ResolvedEffectOperationKind.Heal] = ApplyHeal,
+            [ResolvedEffectOperationKind.Draw] = ApplyDraw,
+            [ResolvedEffectOperationKind.Discard] = ApplyDiscard,
+            [ResolvedEffectOperationKind.Summon] = ApplySummon,
+            [ResolvedEffectOperationKind.Destroy] = ApplyDestroy,
+            [ResolvedEffectOperationKind.Move] = ApplyMove,
+            [ResolvedEffectOperationKind.Transform] = ApplyTransform,
             [ResolvedEffectOperationKind.AddStatModifier] = ApplyStatModifier,
             [ResolvedEffectOperationKind.SetStat] = ApplySetStat,
-            [ResolvedEffectOperationKind.ChangeResource] = ApplyResourceChange,
-            [ResolvedEffectOperationKind.Draw] = RejectUnsupportedDraw
+            [ResolvedEffectOperationKind.ChangeResource] = ApplyResourceChange
         };
     }
 
@@ -171,8 +193,214 @@ public sealed class StateTransitionEngine
         return new LifecycleTransitionEngine().ReconcileContinuousDurations(transition.State, transition.Events);
     }
 
-    private static StateTransitionResult RejectUnsupportedDraw(MatchStateSnapshot state, ResolvedEffectOperation operation) =>
-        throw new NotSupportedException("DRAW requires an ordered deck/hand state model and is intentionally not mutated by the current reducer.");
+    private StateTransitionResult ApplyDraw(MatchStateSnapshot state, ResolvedEffectOperation operation)
+    {
+        var player = state.GetRequiredTarget(operation.TargetId);
+        if (player.Kind != RuntimeTargetKind.Player)
+        {
+            throw new InvalidOperationException("DRAW target must be a player.");
+        }
+
+        var requested = RequireWholeCount(operation.Amount, "DRAW");
+        var current = state;
+        var events = new List<DomainEvent>();
+        for (var index = 0; index < requested; index++)
+        {
+            var zones = current.GetRequiredPlayerZones(player.RuntimeId);
+            if (zones.Deck.Count == 0)
+            {
+                break;
+            }
+
+            var cardId = zones.Deck[0];
+            var card = current.GetRequiredTarget(cardId);
+            current = MoveAcrossZones(current, card, TargetZone.Hand, null, OrderedZoneInsertPosition.Bottom);
+            var updatedZones = current.GetRequiredPlayerZones(player.RuntimeId);
+            events.Add(new CardDrawnDomainEvent(
+                current.NextEventSequence,
+                player.RuntimeId,
+                cardId,
+                updatedZones.Deck.Count,
+                updatedZones.Hand.Count));
+            current = current.With(nextEventSequence: current.NextEventSequence + 1);
+        }
+
+        return new StateTransitionResult(current, events);
+    }
+
+    private StateTransitionResult ApplyDiscard(MatchStateSnapshot state, ResolvedEffectOperation operation)
+    {
+        var card = state.GetRequiredTarget(operation.TargetId);
+        if (card.Zone != TargetZone.Hand || card.OwnerId is not { } ownerId)
+        {
+            throw new InvalidOperationException("DISCARD target must be an owned card in hand.");
+        }
+
+        var updatedState = MoveAcrossZones(
+            state,
+            card,
+            TargetZone.Graveyard,
+            null,
+            OrderedZoneInsertPosition.Bottom);
+        var zones = updatedState.GetRequiredPlayerZones(ownerId);
+        var domainEvent = new CardDiscardedDomainEvent(
+            updatedState.NextEventSequence,
+            operation.SourceId,
+            card.RuntimeId,
+            ownerId,
+            zones.Hand.Count,
+            zones.Graveyard.Count);
+        updatedState = updatedState.With(nextEventSequence: updatedState.NextEventSequence + 1);
+        return new StateTransitionResult(updatedState, new DomainEvent[] { domainEvent });
+    }
+
+    private StateTransitionResult ApplySummon(MatchStateSnapshot state, ResolvedEffectOperation operation)
+    {
+        var catalog = _cardCatalog
+            ?? throw new InvalidOperationException("SUMMON requires a configured CardRuntimeCatalog.");
+        var definitionId = RequireReference(operation.PrimaryReferenceId, "card definition");
+        var lane = state.GetRequiredTarget(operation.TargetId);
+        if (lane.Kind != RuntimeTargetKind.Lane || lane.LaneIndex is not { } laneIndex)
+        {
+            throw new InvalidOperationException("SUMMON destination must be a lane.");
+        }
+
+        var source = state.GetRequiredTarget(operation.SourceId);
+        var ownerId = source.EffectiveOwnerId
+            ?? throw new InvalidOperationException($"SUMMON source '{source.RuntimeId}' has no effective owner.");
+        ValidateBoardDestination(state, ownerId, laneIndex, null);
+
+        var runtimeId = StableId.Parse(
+            "entity.runtime_" + state.NextEntitySequence.ToString("D8", CultureInfo.InvariantCulture));
+        if (state.Targets.Any(target => target.RuntimeId == runtimeId))
+        {
+            throw new InvalidOperationException($"Generated runtime entity ID '{runtimeId}' already exists.");
+        }
+
+        var entity = catalog.Materialize(runtimeId, ownerId, definitionId, TargetZone.Board, laneIndex);
+        var domainEvent = new EntitySummonedDomainEvent(
+            state.NextEventSequence,
+            operation.SourceId,
+            runtimeId,
+            definitionId,
+            laneIndex);
+        var updatedState = state.With(
+            targets: state.Targets.Concat(new[] { entity }),
+            nextEventSequence: state.NextEventSequence + 1,
+            nextEntitySequence: checked(state.NextEntitySequence + 1));
+        return new StateTransitionResult(updatedState, new DomainEvent[] { domainEvent });
+    }
+
+    private StateTransitionResult ApplyDestroy(MatchStateSnapshot state, ResolvedEffectOperation operation)
+    {
+        var target = state.GetRequiredTarget(operation.TargetId);
+        if (target.Zone != TargetZone.Board ||
+            (target.Kind != RuntimeTargetKind.Unit && target.Kind != RuntimeTargetKind.Hero))
+        {
+            throw new InvalidOperationException("DESTROY target must be a unit or hero on the board.");
+        }
+
+        var updatedState = MoveAcrossZones(
+            state,
+            target,
+            TargetZone.Graveyard,
+            null,
+            OrderedZoneInsertPosition.Bottom);
+        var moved = updatedState.GetRequiredTarget(target.RuntimeId);
+        updatedState = updatedState.With(
+            targets: ReplaceTarget(updatedState.Targets, CloneWithHealth(moved, 0m)),
+            nextEventSequence: updatedState.NextEventSequence + 1);
+        return new StateTransitionResult(
+            updatedState,
+            new DomainEvent[] { new EntityDiedDomainEvent(updatedState.NextEventSequence - 1, target.RuntimeId) });
+    }
+
+    private StateTransitionResult ApplyMove(MatchStateSnapshot state, ResolvedEffectOperation operation)
+    {
+        var target = state.GetRequiredTarget(operation.TargetId);
+        var destinationZone = operation.DestinationZone
+            ?? throw new InvalidOperationException("MOVE operation requires a destination zone.");
+
+        int? destinationLane = null;
+        if (destinationZone == TargetZone.Board)
+        {
+            var destinationId = operation.DestinationId
+                ?? throw new InvalidOperationException("MOVE to BOARD requires a destination lane ID.");
+            var lane = state.GetRequiredTarget(destinationId);
+            if (lane.Kind != RuntimeTargetKind.Lane || lane.LaneIndex is not { } laneIndex)
+            {
+                throw new InvalidOperationException("MOVE destination must resolve to a lane.");
+            }
+
+            destinationLane = laneIndex;
+            if (target.OwnerId is not { } ownerId)
+            {
+                throw new InvalidOperationException("MOVE to BOARD requires an owned card or unit.");
+            }
+
+            ValidateBoardDestination(state, ownerId, laneIndex, target.RuntimeId);
+        }
+
+        MatchStateSnapshot updatedState;
+        if (target.Zone == destinationZone)
+        {
+            if (destinationZone != TargetZone.Board || destinationLane is null || target.LaneIndex == destinationLane)
+            {
+                throw new InvalidOperationException("Same-zone MOVE is only supported for movement between different board lanes.");
+            }
+
+            var replacement = Clone(
+                target,
+                target.Zone,
+                destinationLane,
+                target.Stats,
+                target.Resources,
+                target.CurrentHealth);
+            updatedState = state.With(targets: ReplaceTarget(state.Targets, replacement));
+        }
+        else
+        {
+            var placement = ParseInsertPosition(operation.Qualifier);
+            updatedState = MoveAcrossZones(state, target, destinationZone, destinationLane, placement);
+        }
+
+        var moved = updatedState.GetRequiredTarget(target.RuntimeId);
+        var domainEvent = new EntityMovedDomainEvent(
+            updatedState.NextEventSequence,
+            operation.SourceId,
+            target.RuntimeId,
+            target.Zone,
+            moved.Zone,
+            target.LaneIndex,
+            moved.LaneIndex,
+            moved.ZoneResidencyEpoch);
+        updatedState = updatedState.With(nextEventSequence: updatedState.NextEventSequence + 1);
+        return new StateTransitionResult(updatedState, new DomainEvent[] { domainEvent });
+    }
+
+    private StateTransitionResult ApplyTransform(MatchStateSnapshot state, ResolvedEffectOperation operation)
+    {
+        var catalog = _cardCatalog
+            ?? throw new InvalidOperationException("TRANSFORM requires a configured CardRuntimeCatalog.");
+        var definitionId = RequireReference(operation.PrimaryReferenceId, "card definition");
+        var target = state.GetRequiredTarget(operation.TargetId);
+        if (target.CardType is null)
+        {
+            throw new InvalidOperationException("TRANSFORM target must be a card-backed runtime entity.");
+        }
+
+        var replacement = catalog.Transform(target, definitionId);
+        var domainEvent = new EntityTransformedDomainEvent(
+            state.NextEventSequence,
+            operation.SourceId,
+            target.RuntimeId,
+            target.CardDefinitionId,
+            definitionId);
+        var updatedState = state.With(
+            targets: ReplaceTarget(state.Targets, replacement),
+            nextEventSequence: state.NextEventSequence + 1);
+        return new StateTransitionResult(updatedState, new DomainEvent[] { domainEvent });
+    }
 
     private StateTransitionResult ApplyDamage(MatchStateSnapshot state, ResolvedEffectOperation operation)
     {
@@ -346,9 +574,13 @@ public sealed class StateTransitionEngine
             .ToArray();
         foreach (var target in lethalTargets)
         {
-            state = state.With(
-                targets: ReplaceTarget(state.Targets, CloneAsDead(target)),
-                nextEventSequence: state.NextEventSequence + 1);
+            state = MoveAcrossZones(
+                state,
+                target,
+                TargetZone.Graveyard,
+                null,
+                OrderedZoneInsertPosition.Bottom);
+            state = state.With(nextEventSequence: state.NextEventSequence + 1);
             events.Add(new EntityDiedDomainEvent(state.NextEventSequence - 1, target.RuntimeId));
         }
 
@@ -423,8 +655,70 @@ public sealed class StateTransitionEngine
         return Clone(target, target.Zone, target.LaneIndex, target.Stats, resources, target.CurrentHealth);
     }
 
-    private static RuntimeTarget CloneAsDead(RuntimeTarget target) =>
-        Clone(target, TargetZone.Graveyard, null, target.Stats, target.Resources, target.CurrentHealth);
+    private static MatchStateSnapshot MoveAcrossZones(
+        MatchStateSnapshot state,
+        RuntimeTarget target,
+        TargetZone destinationZone,
+        int? destinationLaneIndex,
+        OrderedZoneInsertPosition insertPosition)
+    {
+        if (target.Zone == destinationZone)
+        {
+            throw new InvalidOperationException("Cross-zone movement requires a different destination zone.");
+        }
+
+        if (destinationZone == TargetZone.Board)
+        {
+            if (target.OwnerId is not { } ownerId || destinationLaneIndex is not { } laneIndex)
+            {
+                throw new InvalidOperationException("Entering BOARD requires an owned card and destination lane.");
+            }
+
+            ValidateBoardDestination(state, ownerId, laneIndex, target.RuntimeId);
+        }
+        else if (destinationLaneIndex is not null)
+        {
+            throw new InvalidOperationException("Non-board zones cannot carry a lane index.");
+        }
+
+        var replacement = CloneForZone(target, destinationZone, destinationLaneIndex);
+        var zones = OrderedZoneStateRules.Move(state.PlayerZones, target, destinationZone, insertPosition);
+        return state.With(
+            targets: ReplaceTarget(state.Targets, replacement),
+            playerZones: zones);
+    }
+
+    private static RuntimeTarget CloneForZone(
+        RuntimeTarget target,
+        TargetZone zone,
+        int? laneIndex)
+    {
+        var kind = zone == TargetZone.Board && target.CardType == CardType.Unit
+            ? RuntimeTargetKind.Unit
+            : zone != TargetZone.Board && target.CardType is not null
+                ? RuntimeTargetKind.Card
+                : target.Kind;
+        var currentHealth = target.CurrentHealth;
+        if (zone == TargetZone.Board && target.CardType == CardType.Unit && (currentHealth is null || currentHealth <= 0m))
+        {
+            currentHealth = target.GetRequiredStat(MaxHealthStatId);
+        }
+
+        return new RuntimeTarget(
+            target.RuntimeId,
+            kind,
+            target.OwnerId,
+            zone,
+            laneIndex,
+            target.CardType,
+            target.Tags,
+            target.Keywords,
+            target.Stats,
+            target.Resources,
+            currentHealth,
+            checked(target.ZoneResidencyEpoch + 1),
+            target.CardDefinitionId);
+    }
 
     private static RuntimeTarget Clone(
         RuntimeTarget target,
@@ -445,7 +739,48 @@ public sealed class StateTransitionEngine
             stats,
             resources,
             currentHealth,
-            target.ZoneResidencyEpoch + (zone == target.Zone ? 0 : 1));
+            target.ZoneResidencyEpoch + (zone == target.Zone ? 0 : 1),
+            target.CardDefinitionId);
+
+    private static void ValidateBoardDestination(
+        MatchStateSnapshot state,
+        StableId ownerId,
+        int laneIndex,
+        StableId? movingEntityId)
+    {
+        if (laneIndex < 0 || laneIndex >= state.LaneCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(laneIndex), "Destination lane is outside the board.");
+        }
+
+        if (state.Targets.Any(target =>
+            target.RuntimeId != movingEntityId &&
+            target.OwnerId == ownerId &&
+            target.Zone == TargetZone.Board &&
+            target.LaneIndex == laneIndex &&
+            (target.Kind == RuntimeTargetKind.Unit || target.Kind == RuntimeTargetKind.Hero)))
+        {
+            throw new InvalidOperationException($"Player '{ownerId}' already occupies lane {laneIndex}.");
+        }
+    }
+
+    private static int RequireWholeCount(decimal value, string effectName)
+    {
+        if (value < 0m || decimal.Truncate(value) != value || value > int.MaxValue)
+        {
+            throw new InvalidOperationException($"{effectName} amount must be a non-negative whole number within Int32 range.");
+        }
+
+        return decimal.ToInt32(value);
+    }
+
+    private static OrderedZoneInsertPosition ParseInsertPosition(string? value) =>
+        value switch
+        {
+            null or "BOTTOM" => OrderedZoneInsertPosition.Bottom,
+            "TOP" => OrderedZoneInsertPosition.Top,
+            _ => throw new InvalidOperationException($"Unsupported ordered-zone placement '{value}'.")
+        };
 
     private static StableId RequireReference(StableId? referenceId, string kind) =>
         referenceId is { } concreteId

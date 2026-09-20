@@ -45,7 +45,8 @@ public sealed class RuntimeTarget
         IEnumerable<KeyValuePair<StableId, decimal>>? stats = null,
         IEnumerable<KeyValuePair<StableId, decimal>>? resources = null,
         decimal? currentHealth = null,
-        long zoneResidencyEpoch = 1)
+        long zoneResidencyEpoch = 1,
+        StableId? cardDefinitionId = null)
     {
         if (runtimeId == default)
         {
@@ -82,6 +83,11 @@ public sealed class RuntimeTarget
             throw new ArgumentOutOfRangeException(nameof(zoneResidencyEpoch), "Zone residency epoch must be positive.");
         }
 
+        if (cardDefinitionId is { } definitionId && definitionId == default)
+        {
+            throw new ArgumentException("Card definition ID must be null or a non-default StableId.", nameof(cardDefinitionId));
+        }
+
         RuntimeId = runtimeId;
         Kind = kind;
         OwnerId = ownerId;
@@ -94,6 +100,7 @@ public sealed class RuntimeTarget
         _resources = CopyValues(resources, nameof(resources));
         CurrentHealth = currentHealth;
         ZoneResidencyEpoch = zoneResidencyEpoch;
+        CardDefinitionId = cardDefinitionId;
     }
 
     public StableId RuntimeId { get; }
@@ -106,6 +113,7 @@ public sealed class RuntimeTarget
     public IReadOnlyList<StableId> Keywords { get; }
     public decimal? CurrentHealth { get; }
     public long ZoneResidencyEpoch { get; }
+    public StableId? CardDefinitionId { get; }
     public IReadOnlyDictionary<StableId, decimal> Stats => _stats;
     public IReadOnlyDictionary<StableId, decimal> Resources => _resources;
 

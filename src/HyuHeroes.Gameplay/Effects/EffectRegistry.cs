@@ -82,8 +82,11 @@ public static class DefaultEffectRegistry
                 StableId("cardDefinitionId", RegistryReferenceKind.CardDefinition), Selector("destination")),
             Register(EffectIds.Destroy, "effect.destroy", "Destroy selected units through authoritative death processing.",
                 Selector("target")),
-            Register(EffectIds.Move, "effect.move", "Move selected entities between legal locations or zones.",
-                Selector("target"), Selector("destination")),
+            Register(EffectIds.Move, "effect.move", "Move one selected card or unit to a deterministic zone or board lane.",
+                Selector("target"),
+                Enum("destinationZone", "BOARD", "HAND", "DECK", "GRAVEYARD"),
+                OptionalSelector("destination"),
+                OptionalEnum("destinationPlacement", "TOP", "BOTTOM")),
             Register(EffectIds.Transform, "effect.transform", "Transform selected entities into another card definition.",
                 Selector("target"), StableId("cardDefinitionId", RegistryReferenceKind.CardDefinition)),
             Register(EffectIds.ModifyStat, "effect.modify_stat", "Apply a duration-bound stat modification.",
@@ -127,6 +130,9 @@ public static class DefaultEffectRegistry
 
     private static ParameterSchema Formula(string name) =>
         new(name, ParameterKind.Formula, editorHint: "formula-builder");
+
+    private static ParameterSchema OptionalSelector(string name) =>
+        new(name, ParameterKind.Selector, required: false, editorHint: "target-selector-builder");
 
     private static ParameterSchema StableId(string name, RegistryReferenceKind referenceKind = RegistryReferenceKind.None) =>
         new(name, ParameterKind.StableId, editorHint: "registry-select", referenceKind: referenceKind);
