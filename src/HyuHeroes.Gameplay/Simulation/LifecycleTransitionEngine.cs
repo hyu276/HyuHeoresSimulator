@@ -13,6 +13,7 @@ using HyuHeroes.Gameplay.Events;
 using HyuHeroes.Gameplay.Modifiers;
 using HyuHeroes.Gameplay.Registries;
 using HyuHeroes.Gameplay.Runtime;
+using HyuHeroes.Gameplay.Schema;
 using HyuHeroes.Gameplay.Selectors;
 
 namespace HyuHeroes.Gameplay.Simulation;
