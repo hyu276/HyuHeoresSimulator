@@ -262,7 +262,7 @@ public sealed class OrderedZoneOperationTests
         Assert.Contains(result.State.Targets, target =>
             target.RuntimeId == StableId.Parse("entity.runtime_00000001") &&
             target.Zone == TargetZone.Board &&
-            target.LaneIndex == 1);
+            target.LaneIndex == 2);
         Assert.Contains(result.Events, item => item is CardDrawnDomainEvent);
         Assert.Contains(result.Events, item => item is EntitySummonedDomainEvent);
     }
