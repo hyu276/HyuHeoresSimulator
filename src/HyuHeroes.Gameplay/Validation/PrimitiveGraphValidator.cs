@@ -45,6 +45,7 @@ internal sealed class PrimitiveGraphValidator
 
         ValidateParameterBag(registration.Descriptor, effect.Parameters, path, errors);
         ValidateModifierDurationParameters(effect, path, errors);
+        ValidateMoveParameters(effect, path, errors);
         ValidateNestedEffects(effect.Parameters, path, depth, errors);
     }
 
@@ -258,6 +259,63 @@ internal sealed class PrimitiveGraphValidator
                 "effect.duration_parameter_invalid",
                 $"{path}.parameters.durationZone",
                 "durationZone is only valid with duration.while_in_zone.");
+        }
+    }
+
+    private static void ValidateMoveParameters(EffectDefinition effect, string path, ValidationCollector errors)
+    {
+        if (effect.TypeId != EffectIds.Move ||
+            !effect.Parameters.TryGet("destinationZone", out var zoneValue) ||
+            zoneValue is not EnumParameterValue destinationZone)
+        {
+            return;
+        }
+
+        var hasDestination = effect.Parameters.TryGet("destination", out var destinationValue) &&
+            destinationValue is SelectorParameterValue;
+        var hasPlacement = effect.Parameters.TryGet("destinationPlacement", out var placementValue) &&
+            placementValue is EnumParameterValue;
+        var isBoard = destinationZone.Value == "BOARD";
+        var isDeck = destinationZone.Value == "DECK";
+
+        if (isBoard && !hasDestination)
+        {
+            errors.Add(
+                "effect.move_destination_required",
+                $"{path}.parameters.destination",
+                "MOVE to BOARD requires a lane destination selector.");
+        }
+        else if (!isBoard && hasDestination)
+        {
+            errors.Add(
+                "effect.move_destination_invalid",
+                $"{path}.parameters.destination",
+                "Only MOVE to BOARD may provide a destination selector.");
+        }
+
+        if (!isDeck && hasPlacement)
+        {
+            errors.Add(
+                "effect.move_placement_invalid",
+                $"{path}.parameters.destinationPlacement",
+                "destinationPlacement is only valid when moving to DECK.");
+        }
+
+        if (!hasDestination ||
+            !effect.Parameters.TryGet("target", out var targetValue) ||
+            targetValue is not SelectorParameterValue targetSelector ||
+            destinationValue is not SelectorParameterValue destinationSelector)
+        {
+            return;
+        }
+
+        if (targetSelector.Value.Selection == TargetSelection.PlayerChoice &&
+            destinationSelector.Value.Selection == TargetSelection.PlayerChoice)
+        {
+            errors.Add(
+                "effect.move_ambiguous_choice",
+                path,
+                "MOVE cannot require PLAYER_CHOICE for both target and destination in one effect.");
         }
     }
 
