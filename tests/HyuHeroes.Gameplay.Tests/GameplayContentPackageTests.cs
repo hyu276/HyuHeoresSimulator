@@ -34,9 +34,11 @@ public sealed class GameplayContentPackageTests
         Assert.Equal(package.ContentVersion, loaded.ContentVersion);
         Assert.Equal(2, loaded.Abilities.Count);
         Assert.Equal(2, loaded.Cards.Count);
+        var mage = Assert.Single(
+            loaded.Cards.Where(card => card.Header.Id == StableId.Parse("card.prototype_mage")));
         Assert.Equal(
             StableId.Parse("ability.prototype_burst"),
-            loaded.Cards[0].Abilities[0].ReferencedAbilityId);
+            mage.Abilities[0].ReferencedAbilityId);
     }
 
     [Fact]
