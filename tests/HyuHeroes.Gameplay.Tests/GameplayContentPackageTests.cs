@@ -72,11 +72,8 @@ public sealed class GameplayContentPackageTests
     {
         var package = GameplayContentCanonicalWriter.Sign(CreatePackage());
         var json = GameplayContentCanonicalWriter.Serialize(package);
-        var tampered = json.Replace(
-            "{",
-            "{\"unexpected\":true,",
-            1,
-            StringComparison.Ordinal);
+        var objectStart = json.IndexOf('{');
+        var tampered = json.Insert(objectStart + 1, "\"unexpected\":true,");
 
         var error = Assert.Throws<InvalidDataException>(() =>
             GameplayContentJsonLoader.Load(tampered));
