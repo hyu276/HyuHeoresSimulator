@@ -91,7 +91,7 @@ public sealed class DurationZoneResidencyTests
         Assert.Empty(graveyard.StatModifiers);
         Assert.Equal(2, graveyard.GetRequiredTarget(TargetId).ZoneResidencyEpoch);
 
-        var returned = lifecycle.ChangeZone(graveyard, TargetId, TargetZone.Board, 0).State;
+        var returned = lifecycle.ChangeZone(graveyard, TargetId, TargetZone.Board, 1).State;
 
         Assert.Equal(TargetZone.Board, returned.GetRequiredTarget(TargetId).Zone);
         Assert.Equal(3, returned.GetRequiredTarget(TargetId).ZoneResidencyEpoch);
@@ -195,11 +195,12 @@ public sealed class DurationZoneResidencyTests
             new RuntimeTarget(OwnerId, RuntimeTargetKind.Player),
             new RuntimeTarget(OpponentId, RuntimeTargetKind.Player),
             Unit(SourceId, OwnerId, 3m, 20m, 0m, 0, 20m),
-            Unit(TargetId, OwnerId, 2m, 20m, 0m, 0, 20m),
+            Unit(TargetId, OwnerId, 2m, 20m, 0m, 1, 20m),
             Unit(AttackerId, OpponentId, 4m, 20m, 0m, 0, 20m),
-            new RuntimeTarget(StableId.Parse("lane.left"), RuntimeTargetKind.Lane, laneIndex: 0)
+            new RuntimeTarget(StableId.Parse("lane.left"), RuntimeTargetKind.Lane, laneIndex: 0),
+            new RuntimeTarget(StableId.Parse("lane.right"), RuntimeTargetKind.Lane, laneIndex: 1)
         };
-        return new MatchStateSnapshot(targets, 3, StableId.Parse("phase.main_action"), 1);
+        return new MatchStateSnapshot(targets, 3, StableId.Parse("phase.main_action"), 2);
     }
 
     private static RuntimeTarget Unit(
