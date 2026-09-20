@@ -46,6 +46,7 @@ public sealed class PendingAbilityChoice
         ExpectedPhaseId = checkpointState.PhaseId;
         ExpectedNextEventSequence = checkpointState.NextEventSequence;
         ExpectedRandomState = checkpointState.RandomState;
+        ExpectedNextEntitySequence = checkpointState.NextEntitySequence;
     }
 
     public TriggerQueueItem QueueItem { get; }
@@ -57,6 +58,7 @@ public sealed class PendingAbilityChoice
     public StableId ExpectedPhaseId { get; }
     public long ExpectedNextEventSequence { get; }
     public ulong ExpectedRandomState { get; }
+    public long ExpectedNextEntitySequence { get; }
 }
 
 public sealed class AbilityResolutionResult
@@ -103,7 +105,8 @@ public sealed class AbilityResolutionEngine
         AbilityRuntimeCatalog catalog,
         TriggerDiscovery triggerDiscovery,
         EffectSequenceEngine? effects = null,
-        int triggerStepBudget = DefaultTriggerStepBudget)
+        int triggerStepBudget = DefaultTriggerStepBudget,
+        CardRuntimeCatalog? cardCatalog = null)
     {
         if (triggerStepBudget <= 0)
         {
@@ -112,7 +115,8 @@ public sealed class AbilityResolutionEngine
 
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _triggerDiscovery = triggerDiscovery ?? throw new ArgumentNullException(nameof(triggerDiscovery));
-        _effects = effects ?? new EffectSequenceEngine();
+        _effects = effects ?? new EffectSequenceEngine(
+            cardCatalog is null ? null : new StateTransitionEngine(cardCatalog));
         _triggerStepBudget = triggerStepBudget;
     }
 
@@ -251,7 +255,8 @@ public sealed class AbilityResolutionEngine
         var matches = state.TurnNumber == pendingChoice.ExpectedTurnNumber
             && state.PhaseId == pendingChoice.ExpectedPhaseId
             && state.NextEventSequence == pendingChoice.ExpectedNextEventSequence
-            && state.RandomState == pendingChoice.ExpectedRandomState;
+            && state.RandomState == pendingChoice.ExpectedRandomState
+            && state.NextEntitySequence == pendingChoice.ExpectedNextEntitySequence;
         if (!matches)
         {
             throw new InvalidOperationException("Pending choice continuation checkpoint does not match the authoritative match snapshot.");
