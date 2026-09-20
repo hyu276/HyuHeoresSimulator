@@ -510,11 +510,12 @@ public static class GameplayContentJsonLoader
         params string[] propertyNames)
     {
         var allowed = propertyNames.ToHashSet(StringComparer.Ordinal);
-        var unknown = element.EnumerateObject()
-            .FirstOrDefault(property => !allowed.Contains(property.Name));
-        if (unknown.Name is not null)
+        foreach (var property in element.EnumerateObject())
         {
-            throw new InvalidDataException($"Unknown property '{path}.{unknown.Name}'.");
+            if (!allowed.Contains(property.Name))
+            {
+                throw new InvalidDataException($"Unknown property '{path}.{property.Name}'.");
+            }
         }
     }
 }
