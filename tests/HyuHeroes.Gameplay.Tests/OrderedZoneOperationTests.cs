@@ -237,7 +237,7 @@ public sealed class OrderedZoneOperationTests
             EffectIds.Summon,
             Bag(
                 Pair("cardDefinitionId", new StableIdParameterValue(UnitDefinitionId)),
-                Pair("destination", Selector(TargetScope.Lane, location: TargetLocation.CurrentLane))));
+                Pair("destination", Selector(TargetScope.Lane, location: TargetLocation.Rightmost))));
         var ability = new AbilityDefinition(
             Header(abilityId),
             new TriggerSpec(TriggerIds.OnDeath),
@@ -255,7 +255,7 @@ public sealed class OrderedZoneOperationTests
             new TriggerDiscovery(new[] { binding }),
             cardCatalog: Catalog());
 
-        var result = engine.Resolve(CreateState(sourceLaneIndex: 1), queue);
+        var result = engine.Resolve(CreateState(), queue);
 
         Assert.Equal(new[] { SecondCardId }, result.State.GetRequiredPlayerZones(OwnerId).Deck);
         Assert.Equal(new[] { HandCardId, TopCardId }, result.State.GetRequiredPlayerZones(OwnerId).Hand);
