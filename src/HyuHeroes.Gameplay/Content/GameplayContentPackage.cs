@@ -109,7 +109,8 @@ public sealed class GameplayContentPackage
         GameplayRegistrySnapshot registries,
         IEnumerable<AbilityDefinition>? abilities,
         IEnumerable<CardDefinition>? cards,
-        string? contentHash = null)
+        string? contentHash = null,
+        GameplayPresentationSnapshot? presentation = null)
     {
         if (schemaVersion <= 0) throw new ArgumentOutOfRangeException(nameof(schemaVersion));
         if (string.IsNullOrWhiteSpace(contentVersion))
@@ -130,6 +131,7 @@ public sealed class GameplayContentPackage
             card => card.Header.Id,
             nameof(cards));
         ContentHash = string.IsNullOrWhiteSpace(contentHash) ? null : contentHash;
+        Presentation = presentation;
     }
 
     public int SchemaVersion { get; }
@@ -139,6 +141,7 @@ public sealed class GameplayContentPackage
     public IReadOnlyList<AbilityDefinition> Abilities { get; }
     public IReadOnlyList<CardDefinition> Cards { get; }
     public string? ContentHash { get; }
+    public GameplayPresentationSnapshot? Presentation { get; }
 
     public GameplayContentPackage WithContentHash(string contentHash) =>
         new(
@@ -148,7 +151,8 @@ public sealed class GameplayContentPackage
             Registries,
             Abilities,
             Cards,
-            contentHash);
+            contentHash,
+            Presentation);
 
     private static IReadOnlyList<TDefinition> CopyDefinitions<TDefinition>(
         IEnumerable<TDefinition>? definitions,
@@ -203,6 +207,49 @@ public static class GameplayContentPackageValidator
             RequirePublished(card.Header, "card");
             RequireValid(validator.Validate(card), card.Header.Id);
             ValidateBindings(card, package.Abilities);
+        }
+
+        if (package.Presentation is not null)
+        {
+            ValidatePresentation(package);
+        }
+    }
+
+    private static void ValidatePresentation(GameplayContentPackage package)
+    {
+        var presentation = package.Presentation
+            ?? throw new InvalidOperationException("Presentation snapshot is unexpectedly null.");
+        var defaultBundle = presentation.GetDefaultBundle();
+        var definitionIds = package.Abilities.Select(ability => ability.Header.Id)
+            .Concat(package.Cards.Select(card => card.Header.Id))
+            .ToHashSet();
+
+        foreach (var ability in package.Abilities)
+        {
+            RequireLocalization(defaultBundle, ability.Header);
+        }
+
+        foreach (var card in package.Cards)
+        {
+            RequireLocalization(defaultBundle, card.Header);
+        }
+
+        var unknownMetadata = presentation.Definitions.Keys.FirstOrDefault(id => !definitionIds.Contains(id));
+        if (unknownMetadata != default)
+        {
+            throw new InvalidDataException(
+                $"Presentation metadata references unknown definition '{unknownMetadata}'.");
+        }
+    }
+
+    private static void RequireLocalization(
+        LocalizationBundle defaultBundle,
+        GameplayDefinitionHeader header)
+    {
+        if (!defaultBundle.Entries.ContainsKey(header.LocalizationKey))
+        {
+            throw new InvalidDataException(
+                $"Default locale '{defaultBundle.Locale}' is missing localization key '{header.LocalizationKey}' for '{header.Id}'.");
         }
     }
 
