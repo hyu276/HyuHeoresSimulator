@@ -5,6 +5,7 @@
  * Risk: Medium because DTO drift can expose incorrect concurrency tokens or publication identities to the Admin Dashboard.
  */
 using System.Text.Json;
+using HyuHeroes.ContentStore.Postgres;
 using HyuHeroes.Gameplay.Content;
 using HyuHeroes.Gameplay.Content.Workflow;
 
@@ -24,8 +25,7 @@ public sealed record PublishRevisionRequest(
     long StoreVersion,
     string ContentVersion,
     string PackagePath,
-    bool MakeDefault = true,
-    ContentPackageManifest? ExistingManifest = null);
+    bool MakeDefault = true);
 
 public sealed record PublicationResponse(
     string ContentVersion,
@@ -57,10 +57,19 @@ public sealed record AuditEntryResponse(
     DateTimeOffset OccurredAt,
     string Reason);
 
-public sealed record PublishRevisionResponse(
-    RevisionDetailResponse Revision,
-    string PackageJson,
-    string ManifestJson);
+public sealed record PublicationJobResponse(
+    Guid JobId,
+    string WorkspaceId,
+    int Revision,
+    string Stage,
+    int AttemptCount,
+    string ContentVersion,
+    string ContentHash,
+    string PackagePath,
+    DateTimeOffset PublishedAt,
+    string? LastError,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
 
 public static class AdminApiContractMapper
 {
@@ -97,11 +106,20 @@ public static class AdminApiContractMapper
             entry.OccurredAt,
             entry.Reason);
 
-    public static PublishRevisionResponse ToPublish(ContentPublishResult result) =>
+    public static PublicationJobResponse ToPublicationJob(PublicationOutboxJob job) =>
         new(
-            ToDetail(result.Revision),
-            result.Artifact.PackageJson,
-            result.Artifact.ManifestJson);
+            job.JobId,
+            job.Key.WorkspaceId.Value,
+            job.Key.Revision,
+            job.Stage.ToString(),
+            job.AttemptCount,
+            job.ContentVersion,
+            job.ContentHash,
+            job.PackagePath,
+            job.PublishedAt,
+            job.LastError,
+            job.CreatedAt,
+            job.UpdatedAt);
 
     private static JsonElement ParseJson(string json)
     {
