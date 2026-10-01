@@ -422,12 +422,14 @@
         <div class="brand-mark" aria-hidden="true">H</div>
         <div>
           <div class="brand-title">Hyu Heroes Simulator</div>
-          <div class="brand-sub">Deterministic presentation fixture</div>
+          <div class="brand-sub">Authoritative content package client</div>
         </div>
       </div>
       <div class="top-actions">
         <span class="pill" id="turnLabel">Turn 3</span>
         <span class="pill" id="seedLabel">Seed 27601</span>
+        <span class="pill" id="contentVersionLabel">Content loading…</span>
+        <span class="pill" id="contentHashLabel">Hash —</span>
         <button class="button" id="restartButton" type="button">Reset fixture</button>
       </div>
     </header>
@@ -507,49 +509,9 @@
         { id: "end", label: "End Turn", note: "Cleanup" }
       ];
 
-      const CARD_DEFINITIONS = Object.freeze({
-        "card.bloom_lancer": {
-          name: "Bloom Lancer", type: "Unit", className: "Striker", alignment: "Neutral", tags: ["Plant", "Soldier"], keywords: ["Tempo"],
-          cost: 2, attack: 3, health: 2, text: "Fast pressure unit built to contest an open lane.",
-          abilities: [{ name: "Forward Bloom", trigger: "On Play", target: "Current lane", condition: "Lane is empty", effects: "Summon self; establish lane pressure." }]
-        },
-        "card.root_sage": {
-          name: "Root Sage", type: "Unit", className: "Tank", alignment: "Neutral", tags: ["Plant", "Mystic"], keywords: ["Guard"],
-          cost: 3, attack: 2, health: 5, text: "Durable lane anchor intended to stabilize contested space.",
-          abilities: [{ name: "Deep Root", trigger: "On Summoned", target: "Self", condition: "Always", effects: "Defensive placeholder; execution handler not implemented in HTML." }]
-        },
-        "card.sunforge_beetle": {
-          name: "Sunforge Beetle", type: "Unit", className: "Striker", alignment: "Neutral", tags: ["Beast", "Machine"], keywords: [],
-          cost: 4, attack: 5, health: 4, text: "Heavy mid-game body with efficient board pressure.",
-          abilities: [{ name: "Solar Shell", trigger: "On Damaged", target: "Self", condition: "Source is damaged", effects: "Runtime-ready metadata example." }]
-        },
-        "card.grove_scout": {
-          name: "Grove Scout", type: "Unit", className: "Support", alignment: "Neutral", tags: ["Plant", "Scout"], keywords: [],
-          cost: 1, attack: 1, health: 2, text: "Cheap tempo unit for early lane development.",
-          abilities: [{ name: "Pathfinder", trigger: "On Play", target: "Adjacent lanes", condition: "Always", effects: "Targeting metadata example." }]
-        },
-        "card.ancient_canopy": {
-          name: "Ancient Canopy", type: "Unit", className: "Tank", alignment: "Neutral", tags: ["Plant", "Ancient"], keywords: ["Guard"],
-          cost: 6, attack: 6, health: 7, text: "Large late-game body; intentionally unaffordable in this fixture.",
-          abilities: [{ name: "Canopy Dominion", trigger: "On Summoned", target: "Friendly board", condition: "Turn >= 3", effects: "Structured effect metadata placeholder." }]
-        },
-        "card.moss_sentinel": {
-          name: "Moss Sentinel", type: "Unit", className: "Tank", alignment: "Neutral", tags: ["Plant"], keywords: ["Guard"], cost: 2, attack: 2, health: 5,
-          text: "Existing friendly board unit.", abilities: [{ name: "Hold Ground", trigger: "Passive", target: "Self", condition: "On board", effects: "Board fixture metadata." }]
-        },
-        "card.briar_guard": {
-          name: "Briar Guard", type: "Unit", className: "Tank", alignment: "Neutral", tags: ["Plant"], keywords: ["Guard"], cost: 3, attack: 3, health: 4,
-          text: "Existing friendly board unit.", abilities: [{ name: "Briar Wall", trigger: "Passive", target: "Current lane", condition: "On board", effects: "Board fixture metadata." }]
-        },
-        "card.volt_jackal": {
-          name: "Volt Jackal", type: "Unit", className: "Striker", alignment: "Enemy", tags: ["Beast", "Electric"], keywords: [], cost: 4, attack: 4, health: 2,
-          text: "Existing enemy board unit.", abilities: [{ name: "Voltage Bite", trigger: "On Attack", target: "Enemy in lane", condition: "Target exists", effects: "Board fixture metadata." }]
-        },
-        "card.gloom_wisp": {
-          name: "Gloom Wisp", type: "Unit", className: "Control", alignment: "Enemy", tags: ["Spirit"], keywords: [], cost: 2, attack: 1, health: 4,
-          text: "Existing enemy board unit.", abilities: [{ name: "Gloom Veil", trigger: "After Combat", target: "Current lane", condition: "Source survives", effects: "Board fixture metadata." }]
-        }
-      });
+      const CONTENT_PACKAGE_URL = "./content/packages/prototype-v1.json";
+      let contentPackage = null;
+      let cardDefinitions = Object.freeze({});
 
       const INITIAL_SNAPSHOT = Object.freeze({
         schemaVersion: 1,
@@ -560,10 +522,10 @@
         enemy: { health: 20, resource: 4 },
         lanes: [
           { id: "lane-0", enemy: null, player: null },
-          { id: "lane-1", enemy: null, player: { instanceId: "p-09", definitionId: "card.moss_sentinel", attack: 2, health: 5 } },
-          { id: "lane-2", enemy: { instanceId: "e-21", definitionId: "card.volt_jackal", attack: 4, health: 2 }, player: null },
+          { id: "lane-1", enemy: null, player: { instanceId: "p-09", definitionId: "card.moss_sentinel" } },
+          { id: "lane-2", enemy: { instanceId: "e-21", definitionId: "card.volt_jackal" }, player: null },
           { id: "lane-3", enemy: null, player: null },
-          { id: "lane-4", enemy: { instanceId: "e-24", definitionId: "card.gloom_wisp", attack: 1, health: 4 }, player: { instanceId: "p-11", definitionId: "card.briar_guard", attack: 3, health: 4 } }
+          { id: "lane-4", enemy: { instanceId: "e-24", definitionId: "card.gloom_wisp" }, player: { instanceId: "p-11", definitionId: "card.briar_guard" } }
         ],
         hand: [
           { instanceId: "h-31", definitionId: "card.bloom_lancer" },
@@ -576,7 +538,7 @@
 
       const deepClone = value => JSON.parse(JSON.stringify(value));
       const escapeHtml = input => String(input).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
-      const definitionFor = card => CARD_DEFINITIONS[card.definitionId] || { name: card.definitionId, type: "Unknown", className: "Unknown", alignment: "Unknown", tags: [], keywords: [], cost: 0, attack: card.attack ?? 0, health: card.health ?? 0, text: "No metadata.", abilities: [] };
+      const definitionFor = card => cardDefinitions[card.definitionId] || { name: card.definitionId, type: "Unknown", className: "Unknown", alignment: "Unknown", tags: [], keywords: [], cost: 0, attack: 0, health: 0, text: "Definition missing from loaded content package.", abilities: [] };
 
       class DemoSimulationAdapter {
         constructor(initialSnapshot) {
@@ -642,7 +604,7 @@
         }
       }
 
-      const simulation = new DemoSimulationAdapter(INITIAL_SNAPSHOT);
+      let simulation = null;
       let snapshot = deepClone(INITIAL_SNAPSHOT);
       let selectedCardId = null;
       let detailReference = null;
@@ -652,11 +614,109 @@
         battlefield: document.getElementById("battlefield"), hand: document.getElementById("hand"), phaseList: document.getElementById("phaseList"),
         phaseName: document.getElementById("phaseName"), phaseButton: document.getElementById("phaseButton"), restartButton: document.getElementById("restartButton"),
         eventLog: document.getElementById("eventLog"), turnLabel: document.getElementById("turnLabel"), seedLabel: document.getElementById("seedLabel"),
+        contentVersionLabel: document.getElementById("contentVersionLabel"), contentHashLabel: document.getElementById("contentHashLabel"),
         playerHealth: document.getElementById("playerHealth"), playerResource: document.getElementById("playerResource"), enemyHealth: document.getElementById("enemyHealth"),
         enemyResource: document.getElementById("enemyResource"), detailBackdrop: document.getElementById("detailBackdrop"), detailTitle: document.getElementById("detailTitle"),
         detailId: document.getElementById("detailId"), detailBody: document.getElementById("detailBody"), detailPlay: document.getElementById("detailPlay"),
         detailClose: document.getElementById("detailClose"), detailCloseSecondary: document.getElementById("detailCloseSecondary"), toast: document.getElementById("toast")
       };
+
+      async function loadContentPackage() {
+        const response = await fetch(CONTENT_PACKAGE_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Content package request failed with HTTP ${response.status}.`);
+        const packageData = await response.json();
+        validatePackageShape(packageData);
+        return packageData;
+      }
+
+      function validatePackageShape(packageData) {
+        if (!packageData || packageData.schemaVersion !== 1) throw new Error("Simulator requires schemaVersion 1.");
+        if (!Array.isArray(packageData.cards) || !Array.isArray(packageData.abilities)) throw new Error("Content package is missing card or ability arrays.");
+        if (typeof packageData.contentHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(packageData.contentHash)) {
+          throw new Error("Content package has an invalid contentHash shape.");
+        }
+      }
+
+      function buildCardDefinitions(packageData) {
+        const abilitiesById = new Map(packageData.abilities.map(ability => [ability.header.id, ability]));
+        return Object.freeze(Object.fromEntries(packageData.cards.map(card => [
+          card.header.id,
+          buildCardDefinition(card, abilitiesById)
+        ])));
+      }
+
+      function buildCardDefinition(card, abilitiesById) {
+        const stats = card.baseStats || {};
+        const abilities = (card.abilities || [])
+          .map(binding => binding.inline || abilitiesById.get(binding.referenceId))
+          .filter(Boolean)
+          .map(buildAbilitySummary);
+        return {
+          name: displayName(card.header.id),
+          type: displayName(card.cardType),
+          className: displayName(card.classification.classId),
+          alignment: displayName(card.classification.alignmentId),
+          tags: (card.classification.tags || []).map(displayName),
+          keywords: (card.classification.keywords || []).map(displayName),
+          cost: stats["stat.cost"] ?? 0,
+          attack: stats["stat.attack"] ?? 0,
+          health: stats["stat.max_health"] ?? 0,
+          text: `Published revision ${card.header.revision} · ${card.header.localizationKey}`,
+          abilities
+        };
+      }
+
+      function buildAbilitySummary(ability) {
+        const selector = findFirstSelector(ability.effects || []);
+        return {
+          name: displayName(ability.header.id),
+          trigger: displayName(ability.trigger.typeId),
+          target: selector ? summarizeSelector(selector) : "No target selector",
+          condition: ability.condition ? displayName(ability.condition.kind) : "Always",
+          effects: (ability.effects || []).map(effect => displayName(effect.typeId)).join(" → ") || "No effects"
+        };
+      }
+
+      function findFirstSelector(effects) {
+        for (const effect of effects) {
+          for (const parameter of Object.values(effect.parameters || {})) {
+            if (parameter?.kind === "Selector") return parameter.value;
+          }
+        }
+        return null;
+      }
+
+      function summarizeSelector(selector) {
+        return [selector.scope, selector.relation, selector.zone, selector.location, selector.selection]
+          .map(displayName)
+          .join(" · ");
+      }
+
+      function displayName(value) {
+        const raw = String(value || "").split(".").pop().replaceAll("_", " ");
+        return raw.replace(/\b\w/g, character => character.toUpperCase());
+      }
+
+      async function bootstrap() {
+        el.restartButton.disabled = true;
+        el.phaseButton.disabled = true;
+        try {
+          contentPackage = await loadContentPackage();
+          cardDefinitions = buildCardDefinitions(contentPackage);
+          simulation = new DemoSimulationAdapter(INITIAL_SNAPSHOT);
+          snapshot = deepClone(INITIAL_SNAPSHOT);
+          el.contentVersionLabel.textContent = `Content ${contentPackage.contentVersion}`;
+          el.contentHashLabel.textContent = `Hash ${contentPackage.contentHash.slice(7, 15)}…`;
+          el.restartButton.disabled = false;
+          el.phaseButton.disabled = false;
+          renderAll();
+          log("system", "Authoritative content loaded", `${contentPackage.contentVersion} · ${contentPackage.contentHash}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log("system", "Content package load failed", message);
+          showToast("Content package failed to load.");
+        }
+      }
 
       function renderAll() {
         renderStats();
@@ -780,10 +840,12 @@
         const lane = snapshot.lanes.find(item => item.id === laneElement.dataset.laneId);
         if (!lane || lane.player) return;
         const command = { type: "PlayCardCommand", playerId: "player.alpha", cardInstanceId: selectedCardId, laneId: lane.id };
+        if (!simulation) return;
         consumeResult(simulation.submit(command), "Play card");
       }
 
       function onAdvancePhase() {
+        if (!simulation) return;
         selectedCardId = null;
         closeDetails();
         consumeResult(simulation.submit({ type: "EndPhaseCommand", playerId: "player.alpha" }), "Advance phase");
@@ -803,6 +865,7 @@
       }
 
       function restart() {
+        if (!simulation) return;
         selectedCardId = null;
         closeDetails();
         el.eventLog.innerHTML = "";
@@ -837,8 +900,7 @@
       el.detailBackdrop.addEventListener("click", event => { if (event.target === el.detailBackdrop) closeDetails(); });
       document.addEventListener("keydown", event => { if (event.key === "Escape") closeDetails(); });
 
-      renderAll();
-      log("system", "Presentation fixture ready", "Card faces show name only. Click a card for schema-style metadata; use Select to play to create a command intent.");
+      bootstrap();
     })();
   </script>
 </body>
