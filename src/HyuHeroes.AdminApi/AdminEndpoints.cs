@@ -219,7 +219,7 @@ public static class AdminEndpoints
                     request.ContentVersion,
                     request.PackagePath,
                     existingManifest: null,
-                    request.MakeDefault),
+                    makeDefault: request.MakeDefault),
                 request.StoreVersion,
                 occurredAt);
             var job = outbox.Enqueue(
