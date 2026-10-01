@@ -12,6 +12,9 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using HyuHeroes.AdminApi;
+using Microsoft.Extensions.DependencyInjection;
+using HyuHeroes.Gameplay.Content.Workflow;
+using HyuHeroes.ContentStore.Postgres;
 using HyuHeroes.Gameplay.Content;
 using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Registries;
@@ -29,6 +32,7 @@ public sealed class AdminApiIntegrationTests : IDisposable
     private const string Audience = "hyu-admin-api";
     private const string SigningKey = "hyu-admin-api-test-signing-key-32-bytes-minimum";
     private readonly WebApplicationFactory<Program> _factory;
+    private readonly string _artifactRoot;
 
     public AdminApiIntegrationTests()
     {
@@ -42,6 +46,10 @@ public sealed class AdminApiIntegrationTests : IDisposable
         Environment.SetEnvironmentVariable("HYU_ADMIN_JWT_ISSUER", Issuer);
         Environment.SetEnvironmentVariable("HYU_ADMIN_JWT_AUDIENCE", Audience);
         Environment.SetEnvironmentVariable("HYU_ADMIN_JWT_SIGNING_KEY", SigningKey);
+        _artifactRoot = Path.Combine(
+            Path.GetTempPath(),
+            "hyu-admin-artifacts-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture));
+        Environment.SetEnvironmentVariable("HYU_CONTENT_ARTIFACT_ROOT", _artifactRoot);
         _factory = new WebApplicationFactory<Program>();
     }
 
@@ -115,6 +123,71 @@ public sealed class AdminApiIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task PublicationOutbox_PersistsPackageCommitsRevisionAndPromotesManifest()
+    {
+        using var client = _factory.CreateClient();
+        var workspaceId = WorkspaceId();
+
+        Authorize(client, "author.outbox", "Author");
+        var draft = await CreateDraft(client, workspaceId, 3m);
+        var review = await ReadSuccess<RevisionDetailResponse>(
+            await client.PostAsJsonAsync(
+                RevisionAction(workspaceId, draft, "submit-review"),
+                new TransitionRequest("Review outbox publication", draft.Revision.StoreVersion)));
+
+        Authorize(client, "reviewer.outbox", "Reviewer");
+        var approved = await ReadSuccess<RevisionDetailResponse>(
+            await client.PostAsJsonAsync(
+                RevisionAction(workspaceId, review, "approve"),
+                new TransitionRequest("Approve outbox publication", review.Revision.StoreVersion)));
+        Assert.Equal("Approved", approved.Revision.State);
+
+        var suffix = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var packagePath = $"content/packages/outbox-{suffix}.json";
+        var key = new ContentRevisionKey(
+            StableId.Parse(workspaceId),
+            approved.Revision.Revision);
+        var workflow = _factory.Services.GetRequiredService<ContentWorkflowService>();
+        var outbox = _factory.Services.GetRequiredService<PostgresPublicationOutboxRepository>();
+        var publishedAt = DateTimeOffset.UtcNow;
+        var prepared = workflow.PreparePublication(
+            key,
+            new ContentPublishRequest(
+                $"prototype.outbox.{suffix}",
+                packagePath),
+            approved.Revision.StoreVersion,
+            publishedAt);
+        var job = outbox.Enqueue(
+            prepared,
+            "publisher.outbox",
+            "Queue durable outbox publication",
+            DateTimeOffset.UtcNow);
+
+        var completed = await WaitForCompletedJob(outbox, job.JobId);
+        Assert.Equal(PublicationOutboxStage.Completed, completed.Stage);
+
+        Authorize(client, "author.outbox", "Author");
+        var published = await client.GetFromJsonAsync<RevisionDetailResponse>(
+            RevisionPath(workspaceId, approved.Revision.Revision));
+        Assert.NotNull(published);
+        Assert.Equal("Published", published.Revision.State);
+        Assert.Equal(prepared.Artifact.Package.ContentHash, published.Revision.Publication?.ContentHash);
+
+        var fullPackagePath = Path.Combine(
+            _artifactRoot,
+            packagePath.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(fullPackagePath));
+        var storedPackage = GameplayContentJsonLoader.Load(
+            await File.ReadAllTextAsync(fullPackagePath));
+        Assert.Equal(prepared.Artifact.Package.ContentHash, storedPackage.ContentHash);
+
+        var manifestPath = Path.Combine(_artifactRoot, "content", "manifest.json");
+        Assert.True(File.Exists(manifestPath));
+        var manifestJson = await File.ReadAllTextAsync(manifestPath);
+        Assert.Contains($"prototype.outbox.{suffix}", manifestJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StaleStoreVersion_ReturnsConflictWithoutOverwritingDraft()
     {
         using var client = _factory.CreateClient();
@@ -148,7 +221,39 @@ public sealed class AdminApiIntegrationTests : IDisposable
         Assert.Equal(updated.Revision.StoreVersion, current.Revision.StoreVersion);
     }
 
-    public void Dispose() => _factory.Dispose();
+    public void Dispose()
+    {
+        _factory.Dispose();
+        if (Directory.Exists(_artifactRoot))
+        {
+            Directory.Delete(_artifactRoot, recursive: true);
+        }
+    }
+
+    private static async Task<PublicationOutboxJob> WaitForCompletedJob(
+        PostgresPublicationOutboxRepository outbox,
+        Guid jobId)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var job = outbox.Get(jobId)
+                ?? throw new InvalidOperationException($"Publication job '{jobId}' disappeared.");
+            if (job.Stage == PublicationOutboxStage.Completed)
+            {
+                return job;
+            }
+
+            if (job.Stage == PublicationOutboxStage.Failed)
+            {
+                throw new InvalidOperationException(
+                    $"Publication job '{jobId}' failed: {job.LastError}");
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException($"Publication job '{jobId}' did not complete in time.");
+    }
 
     private static async Task<RevisionDetailResponse> CreateDraft(
         HttpClient client,
