@@ -32,6 +32,10 @@ public sealed class GameplayContentPackageTests
 
         Assert.Equal(package.ContentHash, loaded.ContentHash);
         Assert.Equal(package.ContentVersion, loaded.ContentVersion);
+        Assert.Equal("en-US", loaded.Presentation?.DefaultLocale);
+        Assert.Equal(
+            "Prototype Mage",
+            loaded.Presentation?.GetDefaultBundle().GetRequired("loc.card_prototype_mage").Name);
         Assert.Equal(2, loaded.Abilities.Count);
         Assert.Equal(2, loaded.Cards.Count);
         var mage = Assert.Single(
@@ -52,6 +56,55 @@ public sealed class GameplayContentPackageTests
         var secondHash = GameplayContentCanonicalWriter.ComputeHash(second);
 
         Assert.Equal(firstHash, secondHash);
+    }
+
+    [Fact]
+    public void Publisher_EmitsSignedPackageAndPinnedManifest()
+    {
+        var artifact = ContentPublisher.Publish(
+            CreatePackage(),
+            "content/packages/prototype-1.json");
+
+        Assert.NotNull(artifact.Package.ContentHash);
+        Assert.Contains(artifact.Package.ContentHash!, artifact.PackageJson, StringComparison.Ordinal);
+        Assert.Contains("\"defaultContentVersion\": \"prototype.1\"", artifact.ManifestJson, StringComparison.Ordinal);
+
+        var pinned = artifact.Manifest.ResolvePinned(
+            artifact.Package.ContentVersion,
+            artifact.Package.ContentHash!);
+        Assert.Equal("content/packages/prototype-1.json", pinned.PackagePath);
+        Assert.Equal("en-US", pinned.DefaultLocale);
+        Assert.Equal(new[] { "en-US", "vi-VN" }, pinned.Locales);
+    }
+
+    [Fact]
+    public void Publisher_RejectsReusingVersionForDifferentArtifact()
+    {
+        var first = ContentPublisher.Publish(
+            CreatePackage(),
+            "content/packages/prototype-1.json");
+        var changed = CreatePackage(descriptionSuffix: " changed");
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ContentPublisher.Publish(
+                changed,
+                "content/packages/prototype-1.json",
+                first.Manifest));
+
+        Assert.Contains("immutable", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Manifest_RejectsWrongPinnedHash()
+    {
+        var artifact = ContentPublisher.Publish(
+            CreatePackage(),
+            "content/packages/prototype-1.json");
+
+        Assert.Throws<InvalidDataException>(() =>
+            artifact.Manifest.ResolvePinned(
+                "prototype.1",
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
     }
 
     [Fact]
@@ -111,7 +164,9 @@ public sealed class GameplayContentPackageTests
         Assert.Contains("references missing package ability", error.Message, StringComparison.Ordinal);
     }
 
-    private static GameplayContentPackage CreatePackage(bool reverseInsertionOrder = false)
+    private static GameplayContentPackage CreatePackage(
+        bool reverseInsertionOrder = false,
+        string descriptionSuffix = "")
     {
         var catalog = GameplayRegistryCatalog.CreateSchemaV1();
         var burst = Ability("ability.prototype_burst", EffectIds.Damage, 3m);
@@ -126,13 +181,56 @@ public sealed class GameplayContentPackageTests
             ? new[] { guardian, mage }
             : new[] { mage, guardian };
 
+        var presentation = PresentationFor(abilities, cards, descriptionSuffix);
         return new GameplayContentPackage(
             GameplaySchemaValidator.SupportedSchemaVersion,
             "prototype.1",
             PublishedAt,
             GameplayRegistrySnapshot.FromCatalog(catalog),
             abilities,
-            cards);
+            cards,
+            presentation: presentation);
+    }
+
+    private static GameplayPresentationSnapshot PresentationFor(
+        IEnumerable<AbilityDefinition> abilities,
+        IEnumerable<CardDefinition> cards,
+        string descriptionSuffix)
+    {
+        var definitions = abilities.Select(ability => ability.Header)
+            .Concat(cards.Select(card => card.Header))
+            .ToArray();
+
+        LocalizationBundle Bundle(string locale, string prefix) =>
+            new(
+                locale,
+                definitions.Select(header =>
+                    new LocalizedDefinitionText(
+                        header.LocalizationKey,
+                        prefix + DisplayName(header.Id.Value),
+                        $"Description for {header.Id.Value}{descriptionSuffix}")));
+
+        return new GameplayPresentationSnapshot(
+            "en-US",
+            new[]
+            {
+                Bundle("en-US", ""),
+                Bundle("vi-VN", "VN ")
+            },
+            cards.Select(card =>
+                new DefinitionPresentationMetadata(
+                    card.Header.Id,
+                    artworkReferenceId: $"art/{card.Header.Id.Value}.png",
+                    frameStyle: "prototype")));
+    }
+
+    private static string DisplayName(string stableId)
+    {
+        var name = stableId.Split('.').Last().Replace('_', ' ');
+        return string.Join(
+            " ",
+            name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => char.ToUpperInvariant(part[0]) + part.Substring(1)));
     }
 
     private static AbilityDefinition Ability(
