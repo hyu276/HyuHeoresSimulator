@@ -5,6 +5,7 @@
  * Risk: High because transition ordering, validation gates, and publish atomicity determine what content can reach production.
  */
 using System;
+using System.IO;
 using System.Linq;
 using HyuHeroes.Gameplay.Core;
 using HyuHeroes.Gameplay.Registries;
