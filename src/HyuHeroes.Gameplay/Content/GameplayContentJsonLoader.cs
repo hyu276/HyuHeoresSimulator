@@ -27,6 +27,25 @@ public static class GameplayContentJsonLoader
         string json,
         GameplayRegistryCatalog? catalog = null)
     {
+        var package = ParsePackage(json, requireContentHash: true);
+        VerifyHashIfPresent(package);
+        GameplayContentPackageValidator.Validate(
+            package,
+            catalog ?? GameplayRegistryCatalog.CreateSchemaV1());
+        return package;
+    }
+
+    public static GameplayContentPackage LoadAuthoringSnapshot(string json)
+    {
+        var package = ParsePackage(json, requireContentHash: false);
+        VerifyHashIfPresent(package);
+        return package;
+    }
+
+    private static GameplayContentPackage ParsePackage(
+        string json,
+        bool requireContentHash)
+    {
         if (string.IsNullOrWhiteSpace(json))
         {
             throw new ArgumentException("Content package JSON cannot be empty.", nameof(json));
@@ -37,11 +56,13 @@ public static class GameplayContentJsonLoader
         RequireOnly(root, "package",
             "schemaVersion", "contentVersion", "publishedAt", "presentation", "registries", "abilities", "cards", "contentHash");
 
-        var contentHash = ReadRequiredString(root, "contentHash", "package");
+        var contentHash = requireContentHash
+            ? ReadRequiredString(root, "contentHash", "package")
+            : ReadOptionalString(root, "contentHash", "package");
         var presentation = TryGet(root, "presentation", out var presentationElement)
             ? ParsePresentation(presentationElement)
             : null;
-        var package = new GameplayContentPackage(
+        return new GameplayContentPackage(
             ReadRequiredInt(root, "schemaVersion", "package"),
             ReadRequiredString(root, "contentVersion", "package"),
             ParsePublishedAt(ReadRequiredString(root, "publishedAt", "package")),
@@ -50,6 +71,14 @@ public static class GameplayContentJsonLoader
             ParseCards(ReadRequired(root, "cards", "package")),
             contentHash,
             presentation);
+    }
+
+    private static void VerifyHashIfPresent(GameplayContentPackage package)
+    {
+        if (package.ContentHash is not { } contentHash)
+        {
+            return;
+        }
 
         var expectedHash = GameplayContentCanonicalWriter.ComputeHash(package);
         if (!string.Equals(contentHash, expectedHash, StringComparison.Ordinal))
@@ -57,11 +86,6 @@ public static class GameplayContentJsonLoader
             throw new InvalidDataException(
                 $"Content hash mismatch. Expected '{expectedHash}', received '{contentHash}'.");
         }
-
-        GameplayContentPackageValidator.Validate(
-            package,
-            catalog ?? GameplayRegistryCatalog.CreateSchemaV1());
-        return package;
     }
 
     private static GameplayPresentationSnapshot ParsePresentation(JsonElement element)
