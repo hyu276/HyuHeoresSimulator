@@ -138,7 +138,13 @@ public sealed class InMemoryContentRevisionRepository : IContentRevisionReposito
             return;
         }
 
-        if (expectedStoreVersion is null || current!.StoreVersion != expectedStoreVersion.Value)
+        if (current is null)
+        {
+            throw new InvalidOperationException(
+                $"Revision '{key}' was reported as existing without a stored value.");
+        }
+
+        if (expectedStoreVersion is null || current.StoreVersion != expectedStoreVersion.Value)
         {
             throw new ContentConcurrencyException(
                 $"Revision '{key}' changed concurrently. Expected '{expectedStoreVersion?.ToString() ?? "<new>"}', actual '{current.StoreVersion}'.");
