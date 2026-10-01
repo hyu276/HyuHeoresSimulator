@@ -19,6 +19,7 @@ using HyuHeroes.Gameplay.Schema;
 using HyuHeroes.Gameplay.Validation;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
+using Xunit;
 
 namespace HyuHeroes.AdminApi.Tests;
 
