@@ -71,6 +71,11 @@ public static class GameplayContentCanonicalWriter
         writer.WriteNumber("schemaVersion", package.SchemaVersion);
         writer.WriteString("contentVersion", package.ContentVersion);
         writer.WriteString("publishedAt", package.PublishedAt.ToString("O", CultureInfo.InvariantCulture));
+        if (package.Presentation is not null)
+        {
+            WritePresentation(writer, package.Presentation);
+        }
+
         WriteRegistries(writer, package.Registries);
         WriteAbilities(writer, package.Abilities);
         WriteCards(writer, package.Cards);
@@ -81,6 +86,62 @@ public static class GameplayContentCanonicalWriter
 
         writer.WriteEndObject();
         writer.Flush();
+    }
+
+    private static void WritePresentation(
+        Utf8JsonWriter writer,
+        GameplayPresentationSnapshot presentation)
+    {
+        writer.WritePropertyName("presentation");
+        writer.WriteStartObject();
+        writer.WriteString("defaultLocale", presentation.DefaultLocale);
+
+        writer.WritePropertyName("localizations");
+        writer.WriteStartObject();
+        foreach (var locale in presentation.Localizations.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            writer.WritePropertyName(locale.Key);
+            writer.WriteStartObject();
+            foreach (var entry in locale.Value.Entries.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                writer.WritePropertyName(entry.Key);
+                writer.WriteStartObject();
+                writer.WriteString("name", entry.Value.Name);
+                writer.WriteString("description", entry.Value.Description);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndObject();
+
+        writer.WritePropertyName("definitions");
+        writer.WriteStartObject();
+        foreach (var pair in presentation.Definitions.OrderBy(pair => pair.Key))
+        {
+            writer.WritePropertyName(pair.Key.Value);
+            writer.WriteStartObject();
+            if (pair.Value.ArtworkReferenceId is not null)
+            {
+                writer.WriteString("artworkReferenceId", pair.Value.ArtworkReferenceId);
+            }
+
+            if (pair.Value.IconReferenceId is not null)
+            {
+                writer.WriteString("iconReferenceId", pair.Value.IconReferenceId);
+            }
+
+            if (pair.Value.FrameStyle is not null)
+            {
+                writer.WriteString("frameStyle", pair.Value.FrameStyle);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
     }
 
     private static void WriteRegistries(

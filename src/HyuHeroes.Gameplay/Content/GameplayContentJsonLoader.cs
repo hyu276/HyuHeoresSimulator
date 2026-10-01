@@ -35,9 +35,12 @@ public static class GameplayContentJsonLoader
         using var document = JsonDocument.Parse(json);
         var root = RequireObject(document.RootElement, "package");
         RequireOnly(root, "package",
-            "schemaVersion", "contentVersion", "publishedAt", "registries", "abilities", "cards", "contentHash");
+            "schemaVersion", "contentVersion", "publishedAt", "presentation", "registries", "abilities", "cards", "contentHash");
 
         var contentHash = ReadRequiredString(root, "contentHash", "package");
+        var presentation = TryGet(root, "presentation", out var presentationElement)
+            ? ParsePresentation(presentationElement)
+            : null;
         var package = new GameplayContentPackage(
             ReadRequiredInt(root, "schemaVersion", "package"),
             ReadRequiredString(root, "contentVersion", "package"),
@@ -45,7 +48,8 @@ public static class GameplayContentJsonLoader
             ParseRegistries(ReadRequired(root, "registries", "package")),
             ParseAbilities(ReadRequired(root, "abilities", "package")),
             ParseCards(ReadRequired(root, "cards", "package")),
-            contentHash);
+            contentHash,
+            presentation);
 
         var expectedHash = GameplayContentCanonicalWriter.ComputeHash(package);
         if (!string.Equals(contentHash, expectedHash, StringComparison.Ordinal))
@@ -58,6 +62,85 @@ public static class GameplayContentJsonLoader
             package,
             catalog ?? GameplayRegistryCatalog.CreateSchemaV1());
         return package;
+    }
+
+    private static GameplayPresentationSnapshot ParsePresentation(JsonElement element)
+    {
+        element = RequireObject(element, "presentation");
+        RequireOnly(element, "presentation", "defaultLocale", "localizations", "definitions");
+
+        var localizationsElement = RequireObject(
+            ReadRequired(element, "localizations", "presentation"),
+            "presentation.localizations");
+        var bundles = localizationsElement.EnumerateObject()
+            .Select(property => ParseLocalizationBundle(
+                property.Name,
+                property.Value,
+                $"presentation.localizations.{property.Name}"))
+            .ToArray();
+
+        var definitions = TryGet(element, "definitions", out var definitionsElement)
+            ? ParsePresentationDefinitions(definitionsElement)
+            : Array.Empty<DefinitionPresentationMetadata>();
+
+        return new GameplayPresentationSnapshot(
+            ReadRequiredString(element, "defaultLocale", "presentation"),
+            bundles,
+            definitions);
+    }
+
+    private static LocalizationBundle ParseLocalizationBundle(
+        string locale,
+        JsonElement element,
+        string path)
+    {
+        element = RequireObject(element, path);
+        var entries = element.EnumerateObject()
+            .Select(property => ParseLocalizedText(
+                property.Name,
+                property.Value,
+                $"{path}.{property.Name}"))
+            .ToArray();
+        return new LocalizationBundle(locale, entries);
+    }
+
+    private static LocalizedDefinitionText ParseLocalizedText(
+        string localizationKey,
+        JsonElement element,
+        string path)
+    {
+        element = RequireObject(element, path);
+        RequireOnly(element, path, "name", "description");
+        return new LocalizedDefinitionText(
+            localizationKey,
+            ReadRequiredString(element, "name", path),
+            ReadRequiredString(element, "description", path));
+    }
+
+    private static IReadOnlyList<DefinitionPresentationMetadata> ParsePresentationDefinitions(
+        JsonElement element)
+    {
+        element = RequireObject(element, "presentation.definitions");
+        return element.EnumerateObject()
+            .Select(property => ParsePresentationDefinition(
+                property.Name,
+                property.Value,
+                $"presentation.definitions.{property.Name}"))
+            .ToArray();
+    }
+
+    private static DefinitionPresentationMetadata ParsePresentationDefinition(
+        string definitionId,
+        JsonElement element,
+        string path)
+    {
+        element = RequireObject(element, path);
+        RequireOnly(element, path, "artworkReferenceId", "iconReferenceId", "frameStyle");
+        return new DefinitionPresentationMetadata(
+            ParseStableId(definitionId, path),
+            ReadOptionalString(element, "artworkReferenceId", path),
+            ReadOptionalString(element, "iconReferenceId", path),
+            ReadOptionalString(element, "frameStyle", path));
     }
 
     private static GameplayRegistrySnapshot ParseRegistries(JsonElement element)
@@ -439,6 +522,11 @@ public static class GameplayContentJsonLoader
 
     private static int ReadRequiredInt(JsonElement element, string propertyName, string path) =>
         RequireInt(ReadRequired(element, propertyName, path), $"{path}.{propertyName}");
+
+    private static string? ReadOptionalString(JsonElement element, string propertyName, string path) =>
+        TryGet(element, propertyName, out var value)
+            ? RequireString(value, $"{path}.{propertyName}")
+            : null;
 
     private static bool TryGet(JsonElement element, string propertyName, out JsonElement value) =>
         element.TryGetProperty(propertyName, out value);
