@@ -181,7 +181,7 @@ public sealed class AdminApiIntegrationTests : IDisposable
     private static void Authorize(HttpClient client, string subject, params string[] roles)
     {
         var claims = new List<Claim> { new(JwtRegisteredClaimNames.Sub, subject) };
-        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+        claims.AddRange(roles.Select(role => new Claim("role", role)));
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningKey)),
             SecurityAlgorithms.HmacSha256);
