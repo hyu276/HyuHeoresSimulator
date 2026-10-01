@@ -512,25 +512,13 @@ public sealed class PostgresPublicationOutboxRepository
             AsUtcOffset(reader.GetDateTime(17)),
             AsUtcOffset(reader.GetDateTime(18)));
 
-    private static int UpdateStage(
-        Guid jobId,
-        PublicationOutboxStage expectedStage,
-        PublicationOutboxStage nextStage,
-        DateTimeOffset now,
-        string? lastError,
-        DateTimeOffset availableAt)
-    {
-        throw new NotSupportedException("Instance connection is required.");
-    }
-
     private int UpdateStage(
         Guid jobId,
         PublicationOutboxStage expectedStage,
         PublicationOutboxStage nextStage,
         DateTimeOffset now,
         string? lastError,
-        DateTimeOffset availableAt,
-        bool unused = false)
+        DateTimeOffset availableAt)
     {
         using var connection = OpenConnection();
         using var command = new NpgsqlCommand(
