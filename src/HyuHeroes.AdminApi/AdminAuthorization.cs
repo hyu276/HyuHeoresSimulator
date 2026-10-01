@@ -47,7 +47,7 @@ public static class AdminAuthorization
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(1),
                     NameClaimType = JwtRegisteredClaimNames.Sub,
-                    RoleClaimType = ClaimTypes.Role
+                    RoleClaimType = "role"
                 };
             });
 

@@ -5,13 +5,17 @@ on:
     paths:
       - "src/HyuHeroes.Gameplay/**"
       - "src/HyuHeroes.ContentStore.Postgres/**"
+      - "src/HyuHeroes.AdminApi/**"
       - "tests/HyuHeroes.Gameplay.Tests/**"
+      - "tests/HyuHeroes.AdminApi.Tests/**"
       - ".github/workflows/gameplay-schema-ci.yml"
   pull_request:
     paths:
       - "src/HyuHeroes.Gameplay/**"
       - "src/HyuHeroes.ContentStore.Postgres/**"
+      - "src/HyuHeroes.AdminApi/**"
       - "tests/HyuHeroes.Gameplay.Tests/**"
+      - "tests/HyuHeroes.AdminApi.Tests/**"
       - ".github/workflows/gameplay-schema-ci.yml"
 
 jobs:
@@ -38,7 +42,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Restore
+      - name: Restore gameplay tests
         run: dotnet restore tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj
-      - name: Test
+      - name: Restore Admin API tests
+        run: dotnet restore tests/HyuHeroes.AdminApi.Tests/HyuHeroes.AdminApi.Tests.csproj
+      - name: Test gameplay
         run: dotnet test tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj --configuration Release --no-restore
+      - name: Test Admin API
+        run: dotnet test tests/HyuHeroes.AdminApi.Tests/HyuHeroes.AdminApi.Tests.csproj --configuration Release --no-restore
