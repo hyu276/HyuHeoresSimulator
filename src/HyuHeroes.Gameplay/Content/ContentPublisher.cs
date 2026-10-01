@@ -203,11 +203,9 @@ public static class ContentPublisher
         GameplayRegistryCatalog? catalog = null)
     {
         if (package is null) throw new ArgumentNullException(nameof(package));
-        if (package.Presentation is null)
-        {
-            throw new InvalidDataException(
+        var presentation = package.Presentation
+            ?? throw new InvalidDataException(
                 "Published package artifacts require localization/presentation metadata.");
-        }
 
         var runtimeCatalog = catalog ?? GameplayRegistryCatalog.CreateSchemaV1();
         GameplayContentPackageValidator.Validate(package, runtimeCatalog);
@@ -221,8 +219,8 @@ public static class ContentPublisher
             signedPackage.SchemaVersion,
             signedPackage.PublishedAt,
             packagePath,
-            signedPackage.Presentation.DefaultLocale,
-            signedPackage.Presentation.Localizations.Keys);
+            presentation.DefaultLocale,
+            presentation.Localizations.Keys);
 
         var manifest = UpsertManifest(existingManifest, entry, makeDefault);
         return new PublishedContentArtifact(
