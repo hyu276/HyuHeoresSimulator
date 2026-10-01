@@ -102,12 +102,20 @@ public sealed class AdminApiIntegrationTests : IDisposable
                 approved.Revision.StoreVersion,
                 $"prototype.api.{suffix}",
                 $"content/packages/api-{suffix}.json"));
-        var published = await ReadSuccess<PublishRevisionResponse>(publishResponse);
+        Assert.Equal(HttpStatusCode.Accepted, publishResponse.StatusCode);
+        var queued = await ReadSuccess<PublicationJobResponse>(publishResponse);
+        Assert.Equal(workspaceId, queued.WorkspaceId);
+        Assert.Equal(approved.Revision.Revision, queued.Revision);
 
-        Assert.Equal("Published", published.Revision.Revision.State);
-        Assert.NotNull(published.Revision.Revision.Publication);
-        Assert.Contains("sha256:", published.PackageJson, StringComparison.Ordinal);
-        Assert.Contains($"prototype.api.{suffix}", published.ManifestJson, StringComparison.Ordinal);
+        var completed = await WaitForCompletedPublication(client, queued.JobId);
+        Assert.Equal("Completed", completed.Stage);
+
+        var published = await client.GetFromJsonAsync<RevisionDetailResponse>(
+            RevisionPath(workspaceId, approved.Revision.Revision));
+        Assert.NotNull(published);
+        Assert.Equal("Published", published.Revision.State);
+        Assert.NotNull(published.Revision.Publication);
+        Assert.Equal(completed.ContentHash, published.Revision.Publication?.ContentHash);
 
         Authorize(client, "author.alice", "Author");
         var auditResponse = await client.GetAsync(
@@ -228,6 +236,31 @@ public sealed class AdminApiIntegrationTests : IDisposable
         {
             Directory.Delete(_artifactRoot, recursive: true);
         }
+    }
+
+    private static async Task<PublicationJobResponse> WaitForCompletedPublication(
+        HttpClient client,
+        Guid jobId)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var response = await client.GetAsync($"/api/content/publications/{jobId}");
+            var job = await ReadSuccess<PublicationJobResponse>(response);
+            if (string.Equals(job.Stage, "Completed", StringComparison.Ordinal))
+            {
+                return job;
+            }
+
+            if (string.Equals(job.Stage, "Failed", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Publication job '{jobId}' failed: {job.LastError}");
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException($"Publication job '{jobId}' did not complete in time.");
     }
 
     private static async Task<PublicationOutboxJob> WaitForCompletedJob(
