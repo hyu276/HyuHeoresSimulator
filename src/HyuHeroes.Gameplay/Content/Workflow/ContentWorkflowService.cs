@@ -259,7 +259,7 @@ public sealed class ContentWorkflowService
             package.Abilities.Select(ability => CloneAbility(ability, status)),
             package.Cards.Select(card => CloneCard(card, status)),
             contentHash: null,
-            package.Presentation);
+            presentation: package.Presentation);
     }
 
     private static GameplayContentPackage MaterializePublished(
