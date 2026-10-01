@@ -72,6 +72,117 @@ public sealed class ContentWorkflowTests
     }
 
     [Fact]
+    public void PreparePublication_DoesNotMutateApprovedRevisionUntilDurableCommit()
+    {
+        var repository = new InMemoryContentRevisionRepository();
+        var service = new ContentWorkflowService(repository);
+        var draft = service.CreateDraft(
+            WorkspaceId,
+            CreatePackage(),
+            "author.alice",
+            "Create draft",
+            T0);
+        var review = service.SubmitForReview(
+            draft.Key,
+            "author.alice",
+            "Review",
+            draft.StoreVersion,
+            T0.AddMinutes(1));
+        var approved = service.Approve(
+            review.Key,
+            "reviewer.bob",
+            "Approve",
+            review.StoreVersion,
+            T0.AddMinutes(2));
+
+        var prepared = service.PreparePublication(
+            approved.Key,
+            new ContentPublishRequest(
+                "prototype.workflow.prepared",
+                "content/packages/prototype-workflow-prepared.json"),
+            approved.StoreVersion,
+            T0.AddMinutes(3));
+
+        var stillApproved = repository.Get(approved.Key);
+        Assert.NotNull(stillApproved);
+        Assert.Equal(ContentWorkflowState.Approved, stillApproved.State);
+        Assert.Null(stillApproved.Publication);
+        Assert.Equal(approved.StoreVersion, stillApproved.StoreVersion);
+        Assert.Equal(
+            prepared.Artifact.Package.ContentHash,
+            GameplayContentJsonLoader.Load(prepared.Artifact.PackageJson).ContentHash);
+
+        var published = service.CommitDurablePublication(
+            approved.Key,
+            prepared.Artifact.Package,
+            prepared.Request.PackagePath,
+            "publisher.carol",
+            "Artifact persisted",
+            prepared.ExpectedStoreVersion,
+            prepared.PublishedAt);
+
+        Assert.Equal(ContentWorkflowState.Published, published.State);
+        Assert.Equal(prepared.Artifact.Package.ContentHash, published.Publication?.ContentHash);
+        Assert.Equal(approved.StoreVersion + 1, published.StoreVersion);
+    }
+
+    [Fact]
+    public void CommitDurablePublication_RejectsTamperedPackageWithoutPublishing()
+    {
+        var repository = new InMemoryContentRevisionRepository();
+        var service = new ContentWorkflowService(repository);
+        var draft = service.CreateDraft(
+            WorkspaceId,
+            CreatePackage(),
+            "author.alice",
+            "Create draft",
+            T0);
+        var review = service.SubmitForReview(
+            draft.Key,
+            "author.alice",
+            "Review",
+            draft.StoreVersion,
+            T0.AddMinutes(1));
+        var approved = service.Approve(
+            review.Key,
+            "reviewer.bob",
+            "Approve",
+            review.StoreVersion,
+            T0.AddMinutes(2));
+        var prepared = service.PreparePublication(
+            approved.Key,
+            new ContentPublishRequest(
+                "prototype.workflow.tamper",
+                "content/packages/prototype-workflow-tamper.json"),
+            approved.StoreVersion,
+            T0.AddMinutes(3));
+        var tampered = new GameplayContentPackage(
+            prepared.Artifact.Package.SchemaVersion,
+            prepared.Artifact.Package.ContentVersion,
+            prepared.Artifact.Package.PublishedAt,
+            prepared.Artifact.Package.Registries,
+            prepared.Artifact.Package.Abilities,
+            prepared.Artifact.Package.Cards,
+            contentHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            presentation: prepared.Artifact.Package.Presentation);
+
+        Assert.Throws<InvalidDataException>(() =>
+            service.CommitDurablePublication(
+                approved.Key,
+                tampered,
+                prepared.Request.PackagePath,
+                "publisher.carol",
+                "Attempt tampered commit",
+                prepared.ExpectedStoreVersion,
+                prepared.PublishedAt));
+
+        var stored = repository.Get(approved.Key);
+        Assert.NotNull(stored);
+        Assert.Equal(ContentWorkflowState.Approved, stored.State);
+        Assert.Null(stored.Publication);
+    }
+
+    [Fact]
     public void SubmitForReview_RejectsInvalidDraftWithoutChangingStoredRevision()
     {
         var repository = new InMemoryContentRevisionRepository();
