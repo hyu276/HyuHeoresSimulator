@@ -151,7 +151,7 @@ public sealed class PublicationWorker : BackgroundService
                 job.Actor,
                 job.Reason,
                 job.ExpectedStoreVersion,
-                job.PublishedAt);
+                package.PublishedAt);
         }
 
         _outbox.Advance(
