@@ -50,6 +50,12 @@ jobs:
             echo "simulator=false" >> "$GITHUB_OUTPUT"
           fi
 
+          if [ -f tests/HyuHeroes.AdminApi.Tests/HyuHeroes.AdminApi.Tests.csproj ]; then
+            echo "admin_api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "admin_api=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup .NET
         if: steps.detect.outputs.dotnet == 'true'
         uses: actions/setup-dotnet@v4
@@ -59,6 +65,10 @@ jobs:
       - name: Run gameplay tests
         if: steps.detect.outputs.dotnet == 'true'
         run: dotnet test tests/HyuHeroes.Gameplay.Tests/HyuHeroes.Gameplay.Tests.csproj --configuration Release
+
+      - name: Run Admin API tests
+        if: steps.detect.outputs.admin_api == 'true'
+        run: dotnet test tests/HyuHeroes.AdminApi.Tests/HyuHeroes.AdminApi.Tests.csproj --configuration Release
 
       - name: Run simulator tests
         if: steps.detect.outputs.simulator == 'true'
