@@ -68,11 +68,28 @@ public sealed class PostgresContentRevisionRepositoryTests
             "author.ci",
             "Create PostgreSQL integration draft",
             T0);
-        var review = service.SubmitForReview(
+        var updated = service.UpdateDraft(
             draft.Key,
+            CreatePackage(ContentStatus.Published, cost: 4m),
+            "author.ci",
+            "Update PostgreSQL integration draft",
+            draft.StoreVersion,
+            T0.AddSeconds(30));
+
+        Assert.Throws<ContentConcurrencyException>(() =>
+            service.UpdateDraft(
+                draft.Key,
+                CreatePackage(ContentStatus.Published, cost: 8m),
+                "author.stale",
+                "Attempt stale update",
+                draft.StoreVersion,
+                T0.AddSeconds(45)));
+
+        var review = service.SubmitForReview(
+            updated.Key,
             "author.ci",
             "Submit PostgreSQL integration draft",
-            draft.StoreVersion,
+            updated.StoreVersion,
             T0.AddMinutes(1));
         var approved = service.Approve(
             review.Key,
@@ -98,17 +115,8 @@ public sealed class PostgresContentRevisionRepositoryTests
 
         var audit = repository.GetAudit(published.Revision.Key);
         Assert.Equal(
-            new[] { "CREATE_DRAFT", "SUBMIT_REVIEW", "APPROVE", "PUBLISH" },
+            new[] { "CREATE_DRAFT", "UPDATE_DRAFT", "SUBMIT_REVIEW", "APPROVE", "PUBLISH" },
             audit.Select(entry => entry.Action).ToArray());
-
-        Assert.Throws<ContentConcurrencyException>(() =>
-            service.UpdateDraft(
-                draft.Key,
-                CreatePackage(ContentStatus.Published, cost: 8m),
-                "author.stale",
-                "Attempt stale update",
-                draft.StoreVersion,
-                T0.AddMinutes(4)));
     }
 
     private static GameplayContentPackage CreatePackage(
