@@ -1,0 +1,916 @@
+{
+  "schemaVersion": 1,
+  "contentVersion": "prototype.2",
+  "publishedAt": "2026-10-01T14:55:00.0000000+00:00",
+  "presentation": {
+    "defaultLocale": "en-US",
+    "localizations": {
+      "en-US": {
+        "loc.ability_briar_wall": {
+          "name": "Briar Wall",
+          "description": "Ability used by Briar Guard."
+        },
+        "loc.ability_canopy_dominion": {
+          "name": "Canopy Dominion",
+          "description": "Ability used by Ancient Canopy."
+        },
+        "loc.ability_deep_root": {
+          "name": "Deep Root",
+          "description": "Ability used by Root Sage."
+        },
+        "loc.ability_forward_bloom": {
+          "name": "Forward Bloom",
+          "description": "Ability used by Bloom Lancer."
+        },
+        "loc.ability_gloom_veil": {
+          "name": "Gloom Veil",
+          "description": "Ability used by Gloom Wisp."
+        },
+        "loc.ability_hold_ground": {
+          "name": "Hold Ground",
+          "description": "Ability used by Moss Sentinel."
+        },
+        "loc.ability_pathfinder": {
+          "name": "Pathfinder",
+          "description": "Ability used by Grove Scout."
+        },
+        "loc.ability_solar_shell": {
+          "name": "Solar Shell",
+          "description": "Ability used by Sunforge Beetle."
+        },
+        "loc.ability_voltage_bite": {
+          "name": "Voltage Bite",
+          "description": "Ability used by Volt Jackal."
+        },
+        "loc.card_ancient_canopy": {
+          "name": "Ancient Canopy",
+          "description": "Large late-game body for closing board advantage."
+        },
+        "loc.card_bloom_lancer": {
+          "name": "Bloom Lancer",
+          "description": "Fast pressure unit built to contest an open lane."
+        },
+        "loc.card_briar_guard": {
+          "name": "Briar Guard",
+          "description": "Balanced defender for maintaining lane control."
+        },
+        "loc.card_gloom_wisp": {
+          "name": "Gloom Wisp",
+          "description": "Control-oriented enemy unit that persists through combat."
+        },
+        "loc.card_grove_scout": {
+          "name": "Grove Scout",
+          "description": "Cheap tempo unit for early lane development."
+        },
+        "loc.card_moss_sentinel": {
+          "name": "Moss Sentinel",
+          "description": "Reliable defensive body already deployed in the fixture."
+        },
+        "loc.card_root_sage": {
+          "name": "Root Sage",
+          "description": "Durable lane anchor for stabilizing contested space."
+        },
+        "loc.card_sunforge_beetle": {
+          "name": "Sunforge Beetle",
+          "description": "Heavy mid-game body with efficient board pressure."
+        },
+        "loc.card_volt_jackal": {
+          "name": "Volt Jackal",
+          "description": "Aggressive enemy striker focused on lane damage."
+        }
+      },
+      "vi-VN": {
+        "loc.ability_briar_wall": {
+          "name": "Tường Gai",
+          "description": "Kỹ năng của Hộ Vệ Gai."
+        },
+        "loc.ability_canopy_dominion": {
+          "name": "Uy Quyền Tán Cây",
+          "description": "Kỹ năng của Tán Cổ Thụ."
+        },
+        "loc.ability_deep_root": {
+          "name": "Rễ Sâu",
+          "description": "Kỹ năng của Hiền Giả Rễ."
+        },
+        "loc.ability_forward_bloom": {
+          "name": "Hoa Tiến",
+          "description": "Kỹ năng của Kỵ Binh Hoa."
+        },
+        "loc.ability_gloom_veil": {
+          "name": "Màn U Ám",
+          "description": "Kỹ năng của Đốm U Ám."
+        },
+        "loc.ability_hold_ground": {
+          "name": "Trấn Giữ",
+          "description": "Kỹ năng của Vệ Binh Rêu."
+        },
+        "loc.ability_pathfinder": {
+          "name": "Khai Lộ",
+          "description": "Kỹ năng của Trinh Sát Lùm Cây."
+        },
+        "loc.ability_solar_shell": {
+          "name": "Giáp Thái Dương",
+          "description": "Kỹ năng của Bọ Rèn Dương."
+        },
+        "loc.ability_voltage_bite": {
+          "name": "Cắn Điện",
+          "description": "Kỹ năng của Linh Cẩu Điện."
+        },
+        "loc.card_ancient_canopy": {
+          "name": "Tán Cổ Thụ",
+          "description": "Đơn vị cuối trận lớn để chuyển lợi thế bàn đấu thành chiến thắng."
+        },
+        "loc.card_bloom_lancer": {
+          "name": "Kỵ Binh Hoa",
+          "description": "Đơn vị áp lực nhanh để tranh chấp một làn trống."
+        },
+        "loc.card_briar_guard": {
+          "name": "Hộ Vệ Gai",
+          "description": "Đơn vị phòng thủ cân bằng để duy trì quyền kiểm soát làn."
+        },
+        "loc.card_gloom_wisp": {
+          "name": "Đốm U Ám",
+          "description": "Đơn vị khống chế đối phương có khả năng tồn tại qua giao tranh."
+        },
+        "loc.card_grove_scout": {
+          "name": "Trinh Sát Lùm Cây",
+          "description": "Đơn vị giá rẻ để phát triển làn từ đầu trận."
+        },
+        "loc.card_moss_sentinel": {
+          "name": "Vệ Binh Rêu",
+          "description": "Đơn vị phòng thủ ổn định đã được triển khai trong tình huống mẫu."
+        },
+        "loc.card_root_sage": {
+          "name": "Hiền Giả Rễ",
+          "description": "Đơn vị bền bỉ dùng để giữ vững làn đang tranh chấp."
+        },
+        "loc.card_sunforge_beetle": {
+          "name": "Bọ Rèn Dương",
+          "description": "Đơn vị giữa trận mạnh, tạo áp lực bàn đấu hiệu quả."
+        },
+        "loc.card_volt_jackal": {
+          "name": "Linh Cẩu Điện",
+          "description": "Đơn vị tấn công đối phương tập trung gây sát thương theo làn."
+        }
+      }
+    },
+    "definitions": {
+      "card.ancient_canopy": {
+        "artworkReferenceId": "art/cards/card.ancient_canopy.png",
+        "frameStyle": "tank"
+      },
+      "card.bloom_lancer": {
+        "artworkReferenceId": "art/cards/card.bloom_lancer.png",
+        "frameStyle": "striker"
+      },
+      "card.briar_guard": {
+        "artworkReferenceId": "art/cards/card.briar_guard.png",
+        "frameStyle": "tank"
+      },
+      "card.gloom_wisp": {
+        "artworkReferenceId": "art/cards/card.gloom_wisp.png",
+        "frameStyle": "control"
+      },
+      "card.grove_scout": {
+        "artworkReferenceId": "art/cards/card.grove_scout.png",
+        "frameStyle": "support"
+      },
+      "card.moss_sentinel": {
+        "artworkReferenceId": "art/cards/card.moss_sentinel.png",
+        "frameStyle": "tank"
+      },
+      "card.root_sage": {
+        "artworkReferenceId": "art/cards/card.root_sage.png",
+        "frameStyle": "tank"
+      },
+      "card.sunforge_beetle": {
+        "artworkReferenceId": "art/cards/card.sunforge_beetle.png",
+        "frameStyle": "striker"
+      },
+      "card.volt_jackal": {
+        "artworkReferenceId": "art/cards/card.volt_jackal.png",
+        "frameStyle": "striker"
+      }
+    }
+  },
+  "registries": {
+    "alignments": [
+      "alignment.neutral"
+    ],
+    "classes": [
+      "class.combo",
+      "class.control",
+      "class.ramp",
+      "class.striker",
+      "class.support",
+      "class.tank"
+    ],
+    "conditions": [
+      "condition.card_type_is",
+      "condition.count_matching_compare",
+      "condition.has_keyword",
+      "condition.has_tag",
+      "condition.lane_is_empty",
+      "condition.owner_is",
+      "condition.phase_is",
+      "condition.resource_compare",
+      "condition.stat_compare",
+      "condition.target_is_damaged",
+      "condition.turn_compare",
+      "condition.zone_is"
+    ],
+    "durations": [
+      "duration.for_n_turns",
+      "duration.permanent",
+      "duration.until_end_of_turn",
+      "duration.until_start_of_next_turn",
+      "duration.while_in_zone",
+      "duration.while_source_exists"
+    ],
+    "effects": [
+      "effect.add_keyword",
+      "effect.add_modifier",
+      "effect.change_resource",
+      "effect.conditional",
+      "effect.copy_card",
+      "effect.create_card",
+      "effect.damage",
+      "effect.destroy",
+      "effect.discard",
+      "effect.draw",
+      "effect.heal",
+      "effect.modify_stat",
+      "effect.move",
+      "effect.remove_keyword",
+      "effect.remove_modifier",
+      "effect.set_stat",
+      "effect.summon",
+      "effect.transform"
+    ],
+    "factions": [],
+    "formulaOperators": [
+      "formula.abs",
+      "formula.add",
+      "formula.ceil",
+      "formula.clamp",
+      "formula.constant",
+      "formula.count",
+      "formula.divide",
+      "formula.floor",
+      "formula.max",
+      "formula.min",
+      "formula.multiply",
+      "formula.subtract",
+      "formula.variable"
+    ],
+    "formulaVariables": [
+      "variable.opponent.resource",
+      "variable.owner.resource",
+      "variable.source.attack",
+      "variable.source.health",
+      "variable.source.max_health",
+      "variable.target.attack",
+      "variable.target.health",
+      "variable.turn.number"
+    ],
+    "keywords": [],
+    "phases": [
+      "phase.combat",
+      "phase.end_turn",
+      "phase.main_action",
+      "phase.reaction_response",
+      "phase.resource_draw",
+      "phase.start_turn"
+    ],
+    "resources": [
+      "resource.primary"
+    ],
+    "stats": [
+      "stat.attack",
+      "stat.cost",
+      "stat.defense",
+      "stat.max_health"
+    ],
+    "tags": [],
+    "triggers": [
+      "trigger.after_combat",
+      "trigger.before_combat",
+      "trigger.end_of_turn",
+      "trigger.on_attack",
+      "trigger.on_card_drawn",
+      "trigger.on_damage_dealt",
+      "trigger.on_damaged",
+      "trigger.on_death",
+      "trigger.on_play",
+      "trigger.on_resource_spent",
+      "trigger.on_summoned",
+      "trigger.start_of_turn"
+    ],
+    "usageLimits": [
+      "limit.cooldown_turns",
+      "limit.max_n_times_per_turn",
+      "limit.max_n_times_while_in_zone",
+      "limit.once_per_match",
+      "limit.once_per_turn"
+    ]
+  },
+  "abilities": [
+    {
+      "header": {
+        "id": "ability.briar_wall",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_briar_wall"
+      },
+      "trigger": {
+        "typeId": "trigger.on_summoned",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.canopy_dominion",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_canopy_dominion"
+      },
+      "trigger": {
+        "typeId": "trigger.on_summoned",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.deep_root",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_deep_root"
+      },
+      "trigger": {
+        "typeId": "trigger.on_summoned",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.forward_bloom",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_forward_bloom"
+      },
+      "trigger": {
+        "typeId": "trigger.on_play",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.gloom_veil",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_gloom_veil"
+      },
+      "trigger": {
+        "typeId": "trigger.after_combat",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.hold_ground",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_hold_ground"
+      },
+      "trigger": {
+        "typeId": "trigger.on_summoned",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.pathfinder",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_pathfinder"
+      },
+      "trigger": {
+        "typeId": "trigger.on_play",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.solar_shell",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_solar_shell"
+      },
+      "trigger": {
+        "typeId": "trigger.on_damaged",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "ability.voltage_bite",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.ability_voltage_bite"
+      },
+      "trigger": {
+        "typeId": "trigger.on_attack",
+        "parameters": {}
+      },
+      "effects": [
+        {
+          "typeId": "effect.heal",
+          "parameters": {
+            "amount": {
+              "kind": "Formula",
+              "value": {
+                "operatorId": "formula.constant",
+                "constant": 1,
+                "arguments": []
+              }
+            },
+            "target": {
+              "kind": "Selector",
+              "value": {
+                "scope": "Self",
+                "relation": "Any",
+                "zone": "Any",
+                "location": "Any",
+                "selection": "All",
+                "selectionCount": 1,
+                "filters": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "header": {
+        "id": "card.ancient_canopy",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_ancient_canopy"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.tank",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 6,
+        "stat.cost": 6,
+        "stat.max_health": 7
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.canopy_dominion"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.bloom_lancer",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_bloom_lancer"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.striker",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 3,
+        "stat.cost": 2,
+        "stat.max_health": 2
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.forward_bloom"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.briar_guard",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_briar_guard"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.tank",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 3,
+        "stat.cost": 3,
+        "stat.max_health": 4
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.briar_wall"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.gloom_wisp",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_gloom_wisp"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.control",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 1,
+        "stat.cost": 2,
+        "stat.max_health": 4
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.gloom_veil"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.grove_scout",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_grove_scout"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.support",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 1,
+        "stat.cost": 1,
+        "stat.max_health": 2
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.pathfinder"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.moss_sentinel",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_moss_sentinel"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.tank",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 2,
+        "stat.cost": 2,
+        "stat.max_health": 5
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.hold_ground"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.root_sage",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_root_sage"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.tank",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 2,
+        "stat.cost": 3,
+        "stat.max_health": 5
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.deep_root"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.sunforge_beetle",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_sunforge_beetle"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.striker",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 5,
+        "stat.cost": 4,
+        "stat.max_health": 4
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.solar_shell"
+        }
+      ]
+    },
+    {
+      "header": {
+        "id": "card.volt_jackal",
+        "schemaVersion": 1,
+        "revision": 1,
+        "status": "Published",
+        "localizationKey": "loc.card_volt_jackal"
+      },
+      "cardType": "Unit",
+      "classification": {
+        "alignmentId": "alignment.neutral",
+        "classId": "class.striker",
+        "tags": [],
+        "keywords": []
+      },
+      "baseStats": {
+        "stat.attack": 4,
+        "stat.cost": 4,
+        "stat.max_health": 2
+      },
+      "abilities": [
+        {
+          "referenceId": "ability.voltage_bite"
+        }
+      ]
+    }
+  ],
+  "contentHash": "sha256:5c62df1661639825eb2602fbeb041529e46b8bb9fc6598265a70eea9696248e5"
+}
