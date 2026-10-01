@@ -44,7 +44,7 @@ public static class GameplayContentJsonLoader
         return package;
     }
 
-    internal static GameplayContentPackage ParseAuthoringSnapshot(string json) =>
+    public static GameplayContentPackage ParseAuthoringSnapshot(string json) =>
         ParsePackage(json, requireContentHash: false);
 
     private static GameplayContentPackage ParsePackage(
