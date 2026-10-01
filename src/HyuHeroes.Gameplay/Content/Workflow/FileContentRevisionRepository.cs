@@ -377,7 +377,7 @@ public sealed class FileContentRevisionRepository : IContentRevisionRepository
 
     private sealed class RepositoryDocument
     {
-        public int RepositoryFormatVersion { get; set; } = RepositoryFormatVersion;
+        public int RepositoryFormatVersion { get; set; } = FileContentRevisionRepository.RepositoryFormatVersion;
         public List<RevisionDto> Revisions { get; set; } = new();
         public List<AuditDto> Audit { get; set; } = new();
     }
