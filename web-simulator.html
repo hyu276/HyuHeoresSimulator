@@ -509,8 +509,10 @@
         { id: "end", label: "End Turn", note: "Cleanup" }
       ];
 
-      const CONTENT_PACKAGE_URL = "./content/packages/prototype-v1.json";
+      const CONTENT_MANIFEST_URL = "./content/manifest.json";
+      let contentManifest = null;
       let contentPackage = null;
+      let selectedLocale = null;
       let cardDefinitions = Object.freeze({});
 
       const INITIAL_SNAPSHOT = Object.freeze({
@@ -621,38 +623,93 @@
         detailClose: document.getElementById("detailClose"), detailCloseSecondary: document.getElementById("detailCloseSecondary"), toast: document.getElementById("toast")
       };
 
-      async function loadContentPackage() {
-        const response = await fetch(CONTENT_PACKAGE_URL, { cache: "no-store" });
+      async function loadManifest() {
+        const response = await fetch(CONTENT_MANIFEST_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Content manifest request failed with HTTP ${response.status}.`);
+        const manifest = await response.json();
+        validateManifestShape(manifest);
+        return manifest;
+      }
+
+      function validateManifestShape(manifest) {
+        if (!manifest || manifest.manifestVersion !== 1 || !Array.isArray(manifest.packages)) {
+          throw new Error("Content manifest is not schema version 1.");
+        }
+        if (typeof manifest.defaultContentVersion !== "string") throw new Error("Content manifest has no default version.");
+      }
+
+      function resolveManifestEntry(manifest) {
+        const params = new URLSearchParams(window.location.search);
+        const pinnedVersion = params.get("contentVersion");
+        const pinnedHash = params.get("contentHash");
+        if (Boolean(pinnedVersion) !== Boolean(pinnedHash)) {
+          throw new Error("contentVersion and contentHash must be supplied together when pinning content.");
+        }
+
+        const entry = pinnedVersion
+          ? manifest.packages.find(item => item.contentVersion === pinnedVersion && item.contentHash === pinnedHash)
+          : manifest.packages.find(item => item.contentVersion === manifest.defaultContentVersion);
+        if (!entry) throw new Error("Requested content pin does not exist in the manifest.");
+        if (!/^sha256:[0-9a-f]{64}$/.test(entry.contentHash)) throw new Error("Manifest entry has an invalid contentHash.");
+        if (typeof entry.packagePath !== "string" || entry.packagePath.startsWith("/") || entry.packagePath.includes("..")) {
+          throw new Error("Manifest entry has an invalid package path.");
+        }
+        return entry;
+      }
+
+      async function loadContentPackage(entry) {
+        const response = await fetch(`./${entry.packagePath}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Content package request failed with HTTP ${response.status}.`);
         const packageData = await response.json();
-        validatePackageShape(packageData);
+        validatePackageShape(packageData, entry);
         return packageData;
       }
 
-      function validatePackageShape(packageData) {
-        if (!packageData || packageData.schemaVersion !== 1) throw new Error("Simulator requires schemaVersion 1.");
+      function validatePackageShape(packageData, entry) {
+        if (!packageData || packageData.schemaVersion !== entry.schemaVersion) throw new Error("Package schemaVersion does not match manifest.");
+        if (packageData.contentVersion !== entry.contentVersion) throw new Error("Package contentVersion does not match manifest.");
+        if (packageData.contentHash !== entry.contentHash) throw new Error("Package contentHash does not match manifest pin.");
         if (!Array.isArray(packageData.cards) || !Array.isArray(packageData.abilities)) throw new Error("Content package is missing card or ability arrays.");
-        if (typeof packageData.contentHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(packageData.contentHash)) {
-          throw new Error("Content package has an invalid contentHash shape.");
+        if (!packageData.presentation?.localizations || typeof packageData.presentation.defaultLocale !== "string") {
+          throw new Error("Published package is missing presentation/localization metadata.");
         }
       }
 
-      function buildCardDefinitions(packageData) {
+      function selectLocale(entry, packageData) {
+        const requested = new URLSearchParams(window.location.search).get("locale");
+        const browserLocales = Array.isArray(navigator.languages) ? navigator.languages : [navigator.language];
+        const candidates = [requested, ...browserLocales].filter(Boolean);
+        const exact = candidates.find(locale => entry.locales.includes(locale));
+        if (exact) return exact;
+        const languageMatch = candidates
+          .map(locale => String(locale).split("-")[0])
+          .map(language => entry.locales.find(locale => locale.split("-")[0] === language))
+          .find(Boolean);
+        return languageMatch || entry.defaultLocale || packageData.presentation.defaultLocale;
+      }
+
+      function buildCardDefinitions(packageData, locale) {
         const abilitiesById = new Map(packageData.abilities.map(ability => [ability.header.id, ability]));
+        const localization = packageData.presentation.localizations[locale]
+          || packageData.presentation.localizations[packageData.presentation.defaultLocale]
+          || {};
+        const presentationDefinitions = packageData.presentation.definitions || {};
         return Object.freeze(Object.fromEntries(packageData.cards.map(card => [
           card.header.id,
-          buildCardDefinition(card, abilitiesById)
+          buildCardDefinition(card, abilitiesById, localization, presentationDefinitions)
         ])));
       }
 
-      function buildCardDefinition(card, abilitiesById) {
+      function buildCardDefinition(card, abilitiesById, localization, presentationDefinitions) {
         const stats = card.baseStats || {};
+        const localized = localization[card.header.localizationKey] || {};
+        const presentation = presentationDefinitions[card.header.id] || {};
         const abilities = (card.abilities || [])
           .map(binding => binding.inline || abilitiesById.get(binding.referenceId))
           .filter(Boolean)
-          .map(buildAbilitySummary);
+          .map(ability => buildAbilitySummary(ability, localization));
         return {
-          name: displayName(card.header.id),
+          name: localized.name || displayName(card.header.id),
           type: displayName(card.cardType),
           className: displayName(card.classification.classId),
           alignment: displayName(card.classification.alignmentId),
@@ -661,15 +718,18 @@
           cost: stats["stat.cost"] ?? 0,
           attack: stats["stat.attack"] ?? 0,
           health: stats["stat.max_health"] ?? 0,
-          text: `Published revision ${card.header.revision} · ${card.header.localizationKey}`,
+          text: localized.description || `Published revision ${card.header.revision} · ${card.header.localizationKey}`,
+          artworkReferenceId: presentation.artworkReferenceId || "—",
+          frameStyle: presentation.frameStyle || "default",
           abilities
         };
       }
 
-      function buildAbilitySummary(ability) {
+      function buildAbilitySummary(ability, localization) {
         const selector = findFirstSelector(ability.effects || []);
+        const localized = localization[ability.header.localizationKey] || {};
         return {
-          name: displayName(ability.header.id),
+          name: localized.name || displayName(ability.header.id),
           trigger: displayName(ability.trigger.typeId),
           target: selector ? summarizeSelector(selector) : "No target selector",
           condition: ability.condition ? displayName(ability.condition.kind) : "Always",
@@ -701,16 +761,19 @@
         el.restartButton.disabled = true;
         el.phaseButton.disabled = true;
         try {
-          contentPackage = await loadContentPackage();
-          cardDefinitions = buildCardDefinitions(contentPackage);
+          contentManifest = await loadManifest();
+          const manifestEntry = resolveManifestEntry(contentManifest);
+          contentPackage = await loadContentPackage(manifestEntry);
+          selectedLocale = selectLocale(manifestEntry, contentPackage);
+          cardDefinitions = buildCardDefinitions(contentPackage, selectedLocale);
           simulation = new DemoSimulationAdapter(INITIAL_SNAPSHOT);
           snapshot = deepClone(INITIAL_SNAPSHOT);
-          el.contentVersionLabel.textContent = `Content ${contentPackage.contentVersion}`;
+          el.contentVersionLabel.textContent = `Content ${contentPackage.contentVersion} · ${selectedLocale}`;
           el.contentHashLabel.textContent = `Hash ${contentPackage.contentHash.slice(7, 15)}…`;
           el.restartButton.disabled = false;
           el.phaseButton.disabled = false;
           renderAll();
-          log("system", "Authoritative content loaded", `${contentPackage.contentVersion} · ${contentPackage.contentHash}`);
+          log("system", "Pinned content loaded", `${contentPackage.contentVersion} · ${contentPackage.contentHash} · ${selectedLocale}`);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           log("system", "Content package load failed", message);
@@ -801,7 +864,7 @@
           ? definition.abilities.map(ability => `<article class="ability"><strong>${escapeHtml(ability.name)}</strong><dl><dt>Trigger</dt><dd>${escapeHtml(ability.trigger)}</dd><dt>Target</dt><dd>${escapeHtml(ability.target)}</dd><dt>Condition</dt><dd>${escapeHtml(ability.condition)}</dd><dt>Effects</dt><dd>${escapeHtml(ability.effects)}</dd></dl></article>`).join("")
           : "<span>No abilities.</span>";
         return `<div class="detail-stats"><div class="detail-stat"><span>Cost</span><strong>${definition.cost}</strong></div><div class="detail-stat"><span>Attack</span><strong>${definition.attack}</strong></div><div class="detail-stat"><span>Health</span><strong>${definition.health}</strong></div></div>
-          <section class="detail-section"><h3>Identity</h3><div class="detail-grid"><div><span>Type</span><br>${escapeHtml(definition.type)}</div><div><span>Class</span><br>${escapeHtml(definition.className)}</div><div><span>Alignment</span><br>${escapeHtml(definition.alignment)}</div><div><span>Tags</span><br>${escapeHtml(tags)}</div><div><span>Keywords</span><br>${escapeHtml(keywords)}</div></div></section>
+          <section class="detail-section"><h3>Identity</h3><div class="detail-grid"><div><span>Type</span><br>${escapeHtml(definition.type)}</div><div><span>Class</span><br>${escapeHtml(definition.className)}</div><div><span>Alignment</span><br>${escapeHtml(definition.alignment)}</div><div><span>Tags</span><br>${escapeHtml(tags)}</div><div><span>Keywords</span><br>${escapeHtml(keywords)}</div><div><span>Frame</span><br>${escapeHtml(definition.frameStyle)}</div><div><span>Artwork</span><br>${escapeHtml(definition.artworkReferenceId)}</div></div></section>
           <section class="detail-section"><h3>Card text</h3><div>${escapeHtml(definition.text)}</div></section>
           <section class="detail-section"><h3>Abilities</h3>${abilities}</section>`;
       }

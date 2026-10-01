@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 1,
+  "defaultContentVersion": "prototype.2",
+  "packages": [
+    {
+      "contentVersion": "prototype.2",
+      "contentHash": "sha256:5c62df1661639825eb2602fbeb041529e46b8bb9fc6598265a70eea9696248e5",
+      "schemaVersion": 1,
+      "publishedAt": "2026-10-01T14:55:00.0000000+00:00",
+      "packagePath": "content/packages/prototype-v2.json",
+      "defaultLocale": "en-US",
+      "locales": [
+        "en-US",
+        "vi-VN"
+      ]
+    }
+  ]
+}
