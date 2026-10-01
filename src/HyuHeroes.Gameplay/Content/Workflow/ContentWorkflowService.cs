@@ -159,17 +159,16 @@ public sealed class ContentWorkflowService
             occurredAt);
     }
 
-    public ContentPublishResult Publish(
+    public PreparedContentPublication PreparePublication(
         ContentRevisionKey key,
         ContentPublishRequest request,
-        string actor,
-        string reason,
         long expectedStoreVersion,
         DateTimeOffset occurredAt)
     {
         if (request is null) throw new ArgumentNullException(nameof(request));
         var current = GetRequired(key);
         RequireState(current, ContentWorkflowState.Approved);
+        RequireStoreVersion(current, expectedStoreVersion);
 
         var publishable = MaterializePublished(
             current.Content,
@@ -181,21 +180,49 @@ public sealed class ContentWorkflowService
             request.ExistingManifest,
             request.MakeDefault,
             _catalog);
-        var hash = artifact.Package.ContentHash
-            ?? throw new InvalidOperationException("Published artifact is missing contentHash.");
+        return new PreparedContentPublication(
+            key,
+            expectedStoreVersion,
+            request,
+            occurredAt,
+            artifact);
+    }
+
+    public ContentWorkspaceRevision CommitDurablePublication(
+        ContentRevisionKey key,
+        GameplayContentPackage package,
+        string packagePath,
+        string actor,
+        string reason,
+        long expectedStoreVersion,
+        DateTimeOffset publishedAt)
+    {
+        if (package is null) throw new ArgumentNullException(nameof(package));
+        if (string.IsNullOrWhiteSpace(packagePath))
+        {
+            throw new ArgumentException("Package path cannot be empty.", nameof(packagePath));
+        }
+
+        var current = GetRequired(key);
+        RequireState(current, ContentWorkflowState.Approved);
+        RequireStoreVersion(current, expectedStoreVersion);
+        ValidateDurablePackage(package, publishedAt);
+
+        var hash = package.ContentHash
+            ?? throw new InvalidOperationException("Published package is missing contentHash.");
         var publication = new ContentPublicationRecord(
-            request.ContentVersion,
+            package.ContentVersion,
             hash,
-            request.PackagePath,
-            occurredAt);
+            packagePath,
+            publishedAt);
         var publishedRevision = current.With(
             state: ContentWorkflowState.Published,
-            content: artifact.Package,
-            updatedAt: occurredAt,
+            content: package,
+            updatedAt: publishedAt,
             updatedBy: actor,
             publication: publication);
 
-        var saved = _repository.Save(
+        return _repository.Save(
             publishedRevision,
             expectedStoreVersion,
             Audit(
@@ -204,9 +231,32 @@ public sealed class ContentWorkflowService
                 ContentWorkflowState.Approved,
                 ContentWorkflowState.Published,
                 actor,
-                occurredAt,
+                publishedAt,
                 reason));
-        return new ContentPublishResult(saved, artifact);
+    }
+
+    public ContentPublishResult Publish(
+        ContentRevisionKey key,
+        ContentPublishRequest request,
+        string actor,
+        string reason,
+        long expectedStoreVersion,
+        DateTimeOffset occurredAt)
+    {
+        var prepared = PreparePublication(
+            key,
+            request,
+            expectedStoreVersion,
+            occurredAt);
+        var saved = CommitDurablePublication(
+            key,
+            prepared.Artifact.Package,
+            prepared.Request.PackagePath,
+            actor,
+            reason,
+            prepared.ExpectedStoreVersion,
+            prepared.PublishedAt);
+        return new ContentPublishResult(saved, prepared.Artifact);
     }
 
     private ContentWorkspaceRevision SaveTransition(
@@ -234,6 +284,42 @@ public sealed class ContentWorkflowService
     private ContentWorkspaceRevision GetRequired(ContentRevisionKey key) =>
         _repository.Get(key ?? throw new ArgumentNullException(nameof(key)))
         ?? throw new InvalidOperationException($"Content revision '{key}' does not exist.");
+
+    private static void RequireStoreVersion(
+        ContentWorkspaceRevision revision,
+        long expectedStoreVersion)
+    {
+        if (revision.StoreVersion != expectedStoreVersion)
+        {
+            throw new ContentConcurrencyException(
+                $"Revision '{revision.Key}' changed concurrently. Expected '{expectedStoreVersion}', actual '{revision.StoreVersion}'.");
+        }
+    }
+
+    private void ValidateDurablePackage(
+        GameplayContentPackage package,
+        DateTimeOffset publishedAt)
+    {
+        if (package.ContentHash is not { } contentHash)
+        {
+            throw new InvalidDataException("Published package is missing contentHash.");
+        }
+
+        var expectedHash = GameplayContentCanonicalWriter.ComputeHash(package);
+        if (!string.Equals(contentHash, expectedHash, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Published package hash mismatch. Expected '{expectedHash}', received '{contentHash}'.");
+        }
+
+        if (package.PublishedAt != publishedAt.ToUniversalTime())
+        {
+            throw new InvalidDataException(
+                "Published package timestamp does not match the durable publication timestamp.");
+        }
+
+        GameplayContentPackageValidator.Validate(package, _catalog);
+    }
 
     private static void RequireState(
         ContentWorkspaceRevision revision,
