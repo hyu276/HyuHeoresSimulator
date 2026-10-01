@@ -4,17 +4,35 @@ on:
   push:
     paths:
       - "src/HyuHeroes.Gameplay/**"
+      - "src/HyuHeroes.ContentStore.Postgres/**"
       - "tests/HyuHeroes.Gameplay.Tests/**"
       - ".github/workflows/gameplay-schema-ci.yml"
   pull_request:
     paths:
       - "src/HyuHeroes.Gameplay/**"
+      - "src/HyuHeroes.ContentStore.Postgres/**"
       - "tests/HyuHeroes.Gameplay.Tests/**"
       - ".github/workflows/gameplay-schema-ci.yml"
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hyu
+          POSTGRES_PASSWORD: hyu
+          POSTGRES_DB: hyu_content_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hyu -d hyu_content_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HYU_TEST_POSTGRES: "Host=localhost;Port=5432;Database=hyu_content_test;Username=hyu;Password=hyu;Pooling=false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
