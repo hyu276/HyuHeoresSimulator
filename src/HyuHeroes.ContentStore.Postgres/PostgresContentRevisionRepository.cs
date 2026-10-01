@@ -347,7 +347,7 @@ public sealed class PostgresContentRevisionRepository : IContentRevisionReposito
             StableId.Parse(reader.GetString(0)),
             reader.GetInt32(1));
         var state = (ContentWorkflowState)reader.GetInt16(2);
-        var content = GameplayContentJsonLoader.LoadAuthoringSnapshot(reader.GetString(3));
+        var content = GameplayContentJsonLoader.ParseAuthoringSnapshot(reader.GetString(3));
         var publication = ReadPublication(reader, state);
 
         return new ContentWorkspaceRevision(
