@@ -27,29 +27,9 @@ public static class GameplayContentJsonLoader
         string json,
         GameplayRegistryCatalog? catalog = null)
     {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            throw new ArgumentException("Content package JSON cannot be empty.", nameof(json));
-        }
-
-        using var document = JsonDocument.Parse(json);
-        var root = RequireObject(document.RootElement, "package");
-        RequireOnly(root, "package",
-            "schemaVersion", "contentVersion", "publishedAt", "presentation", "registries", "abilities", "cards", "contentHash");
-
-        var contentHash = ReadRequiredString(root, "contentHash", "package");
-        var presentation = TryGet(root, "presentation", out var presentationElement)
-            ? ParsePresentation(presentationElement)
-            : null;
-        var package = new GameplayContentPackage(
-            ReadRequiredInt(root, "schemaVersion", "package"),
-            ReadRequiredString(root, "contentVersion", "package"),
-            ParsePublishedAt(ReadRequiredString(root, "publishedAt", "package")),
-            ParseRegistries(ReadRequired(root, "registries", "package")),
-            ParseAbilities(ReadRequired(root, "abilities", "package")),
-            ParseCards(ReadRequired(root, "cards", "package")),
-            contentHash,
-            presentation);
+        var package = ParsePackage(json, requireContentHash: true);
+        var contentHash = package.ContentHash
+            ?? throw new InvalidDataException("Published content package is missing contentHash.");
 
         var expectedHash = GameplayContentCanonicalWriter.ComputeHash(package);
         if (!string.Equals(contentHash, expectedHash, StringComparison.Ordinal))
@@ -62,6 +42,45 @@ public static class GameplayContentJsonLoader
             package,
             catalog ?? GameplayRegistryCatalog.CreateSchemaV1());
         return package;
+    }
+
+    internal static GameplayContentPackage ParseAuthoringSnapshot(string json) =>
+        ParsePackage(json, requireContentHash: false);
+
+    private static GameplayContentPackage ParsePackage(
+        string json,
+        bool requireContentHash)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new ArgumentException("Content package JSON cannot be empty.", nameof(json));
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var root = RequireObject(document.RootElement, "package");
+        RequireOnly(root, "package",
+            "schemaVersion", "contentVersion", "publishedAt", "presentation", "registries", "abilities", "cards", "contentHash");
+
+        var contentHash = TryGet(root, "contentHash", out var hashElement)
+            ? RequireString(hashElement, "package.contentHash")
+            : null;
+        if (requireContentHash && contentHash is null)
+        {
+            throw new InvalidDataException("Missing required property 'package.contentHash'.");
+        }
+
+        var presentation = TryGet(root, "presentation", out var presentationElement)
+            ? ParsePresentation(presentationElement)
+            : null;
+        return new GameplayContentPackage(
+            ReadRequiredInt(root, "schemaVersion", "package"),
+            ReadRequiredString(root, "contentVersion", "package"),
+            ParsePublishedAt(ReadRequiredString(root, "publishedAt", "package")),
+            ParseRegistries(ReadRequired(root, "registries", "package")),
+            ParseAbilities(ReadRequired(root, "abilities", "package")),
+            ParseCards(ReadRequired(root, "cards", "package")),
+            contentHash,
+            presentation);
     }
 
     private static GameplayPresentationSnapshot ParsePresentation(JsonElement element)
