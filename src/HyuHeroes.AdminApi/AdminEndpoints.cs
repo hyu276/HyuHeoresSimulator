@@ -6,6 +6,7 @@
  */
 using System.Security.Claims;
 using System.Text.Json;
+using HyuHeroes.ContentStore.Postgres;
 using HyuHeroes.Gameplay.Content;
 using HyuHeroes.Gameplay.Content.Workflow;
 using HyuHeroes.Gameplay.Core;
@@ -22,6 +23,7 @@ public static class AdminEndpoints
         group.MapGet("/workspaces/{workspaceId}/revisions", ListRevisions);
         group.MapGet("/workspaces/{workspaceId}/revisions/{revision:int}", GetRevision);
         group.MapGet("/workspaces/{workspaceId}/revisions/{revision:int}/audit", GetAudit);
+        group.MapGet("/publications/{jobId:guid}", GetPublicationJob);
 
         group.MapPost("/workspaces/{workspaceId}/revisions", CreateDraft)
             .RequireAuthorization(AdminAuthorization.AuthorPolicy);
@@ -85,6 +87,16 @@ public static class AdminEndpoints
         }
 
         return Results.Ok(repository.GetAudit(key).Select(AdminApiContractMapper.ToAudit));
+    }
+
+    private static IResult GetPublicationJob(
+        Guid jobId,
+        PostgresPublicationOutboxRepository outbox)
+    {
+        var job = outbox.Get(jobId);
+        return job is null
+            ? Results.NotFound()
+            : Results.Ok(AdminApiContractMapper.ToPublicationJob(job));
     }
 
     private static IResult CreateDraft(
@@ -194,23 +206,30 @@ public static class AdminEndpoints
         int revision,
         PublishRevisionRequest request,
         ContentWorkflowService service,
+        PostgresPublicationOutboxRepository outbox,
         HttpContext context) =>
         Execute(() =>
         {
             var key = RequiredKey(workspaceId, revision);
-            var publishRequest = new ContentPublishRequest(
-                request.ContentVersion,
-                request.PackagePath,
-                request.ExistingManifest,
-                request.MakeDefault);
-            var result = service.Publish(
+            var occurredAt = DateTimeOffset.UtcNow;
+            var actor = Actor(context.User);
+            var prepared = service.PreparePublication(
                 key,
-                publishRequest,
-                Actor(context.User),
-                request.Reason,
+                new ContentPublishRequest(
+                    request.ContentVersion,
+                    request.PackagePath,
+                    existingManifest: null,
+                    request.MakeDefault),
                 request.StoreVersion,
-                DateTimeOffset.UtcNow);
-            return Results.Ok(AdminApiContractMapper.ToPublish(result));
+                occurredAt);
+            var job = outbox.Enqueue(
+                prepared,
+                actor,
+                request.Reason,
+                occurredAt);
+            return Results.Accepted(
+                $"/api/content/publications/{job.JobId}",
+                AdminApiContractMapper.ToPublicationJob(job));
         });
 
     private static IResult Transition(
