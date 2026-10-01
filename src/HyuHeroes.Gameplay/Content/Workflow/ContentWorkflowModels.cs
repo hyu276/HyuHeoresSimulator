@@ -232,6 +232,36 @@ public sealed class ContentPublishRequest
     public bool MakeDefault { get; }
 }
 
+public sealed class PreparedContentPublication
+{
+    public PreparedContentPublication(
+        ContentRevisionKey key,
+        long expectedStoreVersion,
+        ContentPublishRequest request,
+        DateTimeOffset publishedAt,
+        PublishedContentArtifact artifact)
+    {
+        Key = key ?? throw new ArgumentNullException(nameof(key));
+        if (expectedStoreVersion <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expectedStoreVersion),
+                "Expected store version must be positive.");
+        }
+
+        ExpectedStoreVersion = expectedStoreVersion;
+        Request = request ?? throw new ArgumentNullException(nameof(request));
+        PublishedAt = publishedAt.ToUniversalTime();
+        Artifact = artifact ?? throw new ArgumentNullException(nameof(artifact));
+    }
+
+    public ContentRevisionKey Key { get; }
+    public long ExpectedStoreVersion { get; }
+    public ContentPublishRequest Request { get; }
+    public DateTimeOffset PublishedAt { get; }
+    public PublishedContentArtifact Artifact { get; }
+}
+
 public sealed class ContentPublishResult
 {
     public ContentPublishResult(
