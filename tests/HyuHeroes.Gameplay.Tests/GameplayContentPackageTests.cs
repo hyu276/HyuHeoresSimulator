@@ -35,7 +35,8 @@ public sealed class GameplayContentPackageTests
         Assert.Equal(2, loaded.Abilities.Count);
         Assert.Equal(2, loaded.Cards.Count);
         var mage = Assert.Single(
-            loaded.Cards.Where(card => card.Header.Id == StableId.Parse("card.prototype_mage")));
+            loaded.Cards,
+            card => card.Header.Id == StableId.Parse("card.prototype_mage"));
         Assert.Equal(
             StableId.Parse("ability.prototype_burst"),
             mage.Abilities[0].ReferencedAbilityId);
