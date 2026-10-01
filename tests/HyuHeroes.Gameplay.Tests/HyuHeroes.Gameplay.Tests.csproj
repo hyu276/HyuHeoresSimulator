@@ -17,5 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HyuHeroes.Gameplay/HyuHeroes.Gameplay.csproj" />
+    <ProjectReference Include="../../src/HyuHeroes.ContentStore.Postgres/HyuHeroes.ContentStore.Postgres.csproj" />
   </ItemGroup>
 </Project>
