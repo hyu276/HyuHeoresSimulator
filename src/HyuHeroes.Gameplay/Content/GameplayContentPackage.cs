@@ -178,7 +178,16 @@ public sealed class GameplayContentPackage
 
 public static class GameplayContentPackageValidator
 {
-    public static void Validate(GameplayContentPackage package, GameplayRegistryCatalog catalog)
+    public static void Validate(GameplayContentPackage package, GameplayRegistryCatalog catalog) =>
+        ValidateCore(package, catalog, requirePublished: true);
+
+    public static void ValidateForAuthoring(GameplayContentPackage package, GameplayRegistryCatalog catalog) =>
+        ValidateCore(package, catalog, requirePublished: false);
+
+    private static void ValidateCore(
+        GameplayContentPackage package,
+        GameplayRegistryCatalog catalog,
+        bool requirePublished)
     {
         if (package is null) throw new ArgumentNullException(nameof(package));
         if (catalog is null) throw new ArgumentNullException(nameof(catalog));
@@ -198,15 +207,23 @@ public static class GameplayContentPackageValidator
         var validator = new GameplaySchemaValidator(catalog);
         foreach (var ability in package.Abilities)
         {
-            RequirePublished(ability.Header, "ability");
+            if (requirePublished)
+            {
+                RequirePublished(ability.Header, "ability");
+            }
+
             RequireValid(validator.Validate(ability), ability.Header.Id);
         }
 
         foreach (var card in package.Cards)
         {
-            RequirePublished(card.Header, "card");
+            if (requirePublished)
+            {
+                RequirePublished(card.Header, "card");
+            }
+
             RequireValid(validator.Validate(card), card.Header.Id);
-            ValidateBindings(card, package.Abilities);
+            ValidateBindings(card, package.Abilities, requirePublished);
         }
 
         if (package.Presentation is not null)
@@ -255,7 +272,8 @@ public static class GameplayContentPackageValidator
 
     private static void ValidateBindings(
         CardDefinition card,
-        IReadOnlyList<AbilityDefinition> packageAbilities)
+        IReadOnlyList<AbilityDefinition> packageAbilities,
+        bool requirePublished)
     {
         var abilityIds = packageAbilities.Select(ability => ability.Header.Id).ToHashSet();
         foreach (var binding in card.Abilities)
@@ -266,7 +284,7 @@ public static class GameplayContentPackageValidator
                     $"Card '{card.Header.Id}' references missing package ability '{referencedId}'.");
             }
 
-            if (binding.InlineAbility is { } inline)
+            if (binding.InlineAbility is { } inline && requirePublished)
             {
                 RequirePublished(inline.Header, "inline ability");
             }
